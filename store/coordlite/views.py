@@ -132,6 +132,8 @@ def node_edit(con, node_id: int, fields: dict, actor: str = "unknown") -> dict:
             patch.update(body_version=bv, summary=summary, summary_body_version=bv if summary else None)
         elif summary is not None:
             patch.update(summary=summary, summary_body_version=n["attrs"].get("body_version", 0))
+        if changes.get("status") in ("PROPOSED", "DRAFT") and not n["attrs"].get("owner"):
+            patch["owner"] = actor                           # same default as node_create
         history = (n["attrs"].get("history") or []) + [{"at": now_iso(), "by": actor, "before": {k: n.get(k) for k in changes}}]
         patch["history"] = history[-20:]
         update_node(con, node_id, attrs_patch=patch, **changes)

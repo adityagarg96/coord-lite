@@ -220,6 +220,7 @@ def test_store_lint_sees_what_one_root_cannot(con):
     stray = mk(con, "Loose task", kind="task")                                     # no parent, not a root kind
     old = mk(con, "Use Kafka for events", kind="decision", parent=root["id"], status="PROPOSED")
     _age(con, old["id"], 30)
+    con.execute("UPDATE node SET attrs = json_remove(attrs, '$.owner') WHERE id=?", (old["id"],))   # e.g. an import
     mk(con, "Cache user sessions in Redis", kind="task", parent=root["id"])
     mk(con, "Cache the user sessions in Redis", kind="task", parent=root["id"])
     checks = {(f["check"], f["node_id"]) for f in views.store_lint(con)}
@@ -302,3 +303,9 @@ def test_an_undecided_node_is_owned_by_its_creator_unless_named(con):
     a = mk(con, "Maybe a circuit breaker", kind="decision", parent=root["id"], status="PROPOSED", actor="master")
     b = mk(con, "Maybe gRPC", kind="decision", parent=root["id"], status="PROPOSED", actor="master", attrs={"owner": "w2"})
     assert a["attrs"]["owner"] == "master" and b["attrs"]["owner"] == "w2"
+
+
+def test_editing_a_node_to_proposed_also_gives_it_an_owner(con):
+    root = mk(con, "Plan", kind="plan")
+    d = mk(con, "Use Postgres", kind="decision", parent=root["id"], status="DEFINED")
+    assert views.node_edit(con, d["id"], {"status": "PROPOSED"}, actor="w3")["attrs"]["owner"] == "w3"

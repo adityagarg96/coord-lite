@@ -89,7 +89,7 @@ receipt keyed `pr:<repo>#<n>@<head sha>`, so re-ingesting a PR only processes co
 ## Tests
 
 ```sh
-cd store && uv run pytest -q            # 23 tests, tmp SQLite only (incl. 5 concurrent writers, a real stdio MCP round trip)
+cd store && uv run pytest -q            # 24 tests, tmp SQLite only (incl. 5 concurrent writers, a real stdio MCP round trip)
 cd plugins/handoff && node --test logic.test.ts journal.test.ts   # 17 tests, handoff + journal against a fake host
 ```
 
