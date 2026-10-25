@@ -6,7 +6,7 @@ off to a fresh context when it fills, instead of compacting.
 
 | piece | what it is | where |
 |---|---|---|
-| store | nodes (single parent = containment), typed edges, append-only receipts, briefs, an attributed change log, FTS5 search. Exposed as the `store` MCP server (17 tools). | `store/` (Python, `uv`) |
+| store | nodes (single parent = containment), typed edges, append-only receipts, briefs, an attributed change log, FTS5 search. Exposed as the `store` MCP server (19 tools). | `store/` (Python, `uv`) |
 | handoff | at a context threshold the master writes a brief; the plugin then compacts the session and **replaces** OpenCode's summary with a boot packet from the store (brief + live plan + lint + recent writes). Same session id and title, so peers keep reaching it. | `plugins/handoff/` |
 | peers | `peers` tool: list / send / ask / reply / handover between live sessions on this machine. Third-party, MIT, pinned to the reviewed commit `112c25c`. | `vendor/opencode-session-peers` (submodule) |
 | agents | `master` and `worker` prompts, each carrying the shared laws. | `agents/`, `instructions/coordination.md` |
@@ -42,10 +42,31 @@ OPENCODE_CONFIG_DIR=~/coord-lite/config opencode
 
 `/compact` on the master is a manual handoff. Workers compact the normal way.
 
+## Keeping the graph clean
+
+The shared instructions carry seven upkeep rules (search before create, edit beats add, every node has a parent,
+undecided nodes have an owner and a two-week life, supersede rather than contradict, close what you finish,
+short current bodies). The master owns upkeep, and two tools back it with deterministic checks:
+
+- `store_lint`: every root's `plan_lint` plus what only a store-wide pass sees: orphan roots, PROPOSED/DRAFT
+  nodes untouched for 14 days, undecided nodes with no owner, roots over a budget of 15 undecided nodes, and
+  likely-duplicate siblings. Its findings open every master boot packet.
+- `hygiene_sweep`: parks stale undecided nodes. Dry run by default; the master shows you the list and applies
+  it on your yes. Parking is reversible and keeps history; nothing is deleted.
+
+## Ingesting teammates' PRs
+
+Ask any session to "ingest PR 1234" (or `/ingest-pr 1234` in the TUI). The `ingest-pr` skill fetches the PR with
+`gh` (GitHub Enterprise works with `-R owner/repo`), reads it at a depth that scales with its size (big file
+groups go to background subagents that return summaries), and maps it onto the graph: concept bodies updated
+to what is now true, reversed designs superseded, new subsystems added only when they are genuinely new,
+review-thread decisions recorded, requirements it advances told to their owners. Every touched node gets a
+receipt keyed `pr:<repo>#<n>@<head sha>`, so re-ingesting a PR only processes commits it hasn't seen.
+
 ## Tests
 
 ```sh
-cd store && uv run pytest -q            # 15 tests, tmp SQLite only (incl. 5 concurrent writers, a real stdio MCP round trip)
+cd store && uv run pytest -q            # 18 tests, tmp SQLite only (incl. 5 concurrent writers, a real stdio MCP round trip)
 cd plugins/handoff && node --test logic.test.ts   # 10 tests, the handoff state machine against a fake host
 ```
 
@@ -61,7 +82,8 @@ Found by those runs and fixed: MCP `codemode` calls to the store returned `null`
 relative paths in the config resolve against the session's directory, so `install.py` writes absolute ones;
 a config-dir `instructions` entry was not loaded, so the shared laws are inlined into each agent.
 
-Not verified live: two sessions messaging each other through peers (the plugin's author tests that on 2.0.29;
+Verified live: a worker lists and loads the `ingest-pr` skill. Not verified live: the `/ingest-pr` slash
+command form (`opencode run` passes slash text through literally, so only the TUI would expand it); two sessions messaging each other through peers (the plugin's author tests that on 2.0.29;
 here only `status` was exercised), and a handoff at a real-size threshold.
 
 Caveat for testing: free models can claim tool results they never got. One run reported creating nodes while

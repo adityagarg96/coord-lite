@@ -6,7 +6,7 @@ Nothing global is touched. Run OpenCode with the generated directory layered on 
     OPENCODE_CONFIG_DIR=<repo>/config opencode
 
 Your own ~/.config/opencode and each repo's AGENTS.md still load; this adds the store, the two plugins,
-the master/worker agents (each carrying instructions/coordination.md). Re-run after editing agents/ or moving the repo.
+the master/worker agents (each carrying instructions/coordination.md) and commands/*.md as slash commands. Re-run after editing agents/ or moving the repo.
 
     python3 install.py [--threshold 600000] [--db ~/coord-lite-data/store.db] [--scope coord-lite] [--lessons core|full|none]
 """
@@ -18,12 +18,22 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent
 
 
-def agent(md: Path, shared: str) -> dict:
+def split(md: Path) -> tuple[dict, str]:
     text = md.read_text()
     m = re.match(r"^---\n(.*?)\n---\n(.*)$", text, re.S)
     front, body = (m.group(1), m.group(2)) if m else ("", text)
-    meta = dict(re.findall(r"^(\w+):\s*\"?(.*?)\"?\s*$", front, re.M))
+    return dict(re.findall(r"^(\w+):\s*\"?(.*?)\"?\s*$", front, re.M)), body
+
+
+def agent(md: Path, shared: str) -> dict:
+    meta, body = split(md)
     return {"description": meta.get("description", md.stem), "mode": meta.get("mode", "primary"), "system": body.strip() + "\n\n" + shared}
+
+
+def command(md: Path) -> dict:
+    """A slash command: frontmatter description, body as the template ($ARGUMENTS is substituted by OpenCode)."""
+    meta, body = split(md)
+    return {"description": meta.get("description", md.stem), "template": body.strip()}
 
 
 def main():
@@ -47,6 +57,8 @@ def main():
         # the shared laws are inlined into each agent: an absolute `instructions` path from a config dir was not
         # loaded by 2.0.29 (probed), and only these agents take part, so a team's own agents stay untouched
         "agents": {md.stem: agent(md, shared) for md in sorted((ROOT / "agents").glob("*.md"))},
+        "commands": {md.stem: command(md) for md in sorted((ROOT / "commands").glob("*.md"))},
+        "skills": [str(ROOT / "skills")],
         "mcp": {"servers": {"store": {"type": "local", "command": [*store, "serve"], "environment": env,
                                        # direct tools, not codemode: in 2.0.29 codemode calls to this server returned null (probed)
                                        "codemode": False}}},

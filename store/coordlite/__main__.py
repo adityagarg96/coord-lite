@@ -39,9 +39,13 @@ def boot_packet(con, scope: str = "master", since: str | None = None) -> str:
         plan.append(doc)
         used += len(doc)
     parts.append("## The plan as it stands (plan_render, depth 3)\n" + ("\n\n".join(plan) or "(the store is empty)"))
-    findings = [f for r in roots for f in (views.plan_lint(con, r["id"]) or [])]
+    findings = views.store_lint(con)
     if findings:
-        parts.append("## Lint findings\n" + "\n".join(f"- {f['message']}" for f in findings[:40]))
+        counts = {}
+        for f in findings:
+            counts[f["check"]] = counts.get(f["check"], 0) + 1
+        parts.append(f"## Store hygiene ({len(findings)} findings: " + ", ".join(f"{k} {v}" for k, v in sorted(counts.items()))
+                     + "). Clear these before adding new structure.\n" + "\n".join(f"- {f['message']}" for f in findings[:40]))
     recent = views.changes_since(con, None, limit=30)["changes"]
     if recent:
         parts.append("## Last 30 writes (changes_since)\n" + "\n".join(f"- {c['at'][:19]} {c['actor']}: {c['what']}" for c in recent))

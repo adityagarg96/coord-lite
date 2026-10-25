@@ -209,3 +209,43 @@ def test_map_export_and_concept_links(con):
     assert "Old cron" not in doc
     under = {f["node_id"] for f in views.plan_lint(con, root["id"]) if f["check"] == "concept_underlinked"}
     assert a["id"] not in under and b["id"] not in under            # parent link counts once, plus each other
+
+
+def _age(con, node_id, days):
+    con.execute("UPDATE node SET updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now',?) WHERE id=?", (f"-{days} days", node_id))
+
+
+def test_store_lint_sees_what_one_root_cannot(con):
+    root = mk(con, "Plan", kind="plan")
+    stray = mk(con, "Loose task", kind="task")                                     # no parent, not a root kind
+    old = mk(con, "Use Kafka for events", kind="decision", parent=root["id"], status="PROPOSED")
+    _age(con, old["id"], 30)
+    mk(con, "Cache user sessions in Redis", kind="task", parent=root["id"])
+    mk(con, "Cache the user sessions in Redis", kind="task", parent=root["id"])
+    checks = {(f["check"], f["node_id"]) for f in views.store_lint(con)}
+    assert ("orphan_root", stray["id"]) in checks
+    assert ("stale_proposed", old["id"]) in checks and ("proposed_without_owner", old["id"]) in checks
+    assert any(c == "possible_duplicate" for c, _ in checks)
+    over = {f["check"] for f in views.store_lint(con, proposed_budget=0)}
+    assert "proposed_budget" in over
+
+
+def test_hygiene_sweep_is_a_dry_run_until_applied(con):
+    root = mk(con, "Plan", kind="plan")
+    old = mk(con, "Maybe GraphQL", kind="decision", parent=root["id"], status="PROPOSED")
+    fresh = mk(con, "Maybe gRPC", kind="decision", parent=root["id"], status="PROPOSED")
+    _age(con, old["id"], 20)
+    dry = views.hygiene_sweep(con, days=14, actor="master")
+    assert [n["id"] for n in dry["would_park"]] == [old["id"]] and get_node(con, old["id"])["state"] == "active"
+    views.hygiene_sweep(con, days=14, apply=True, actor="master")
+    assert get_node(con, old["id"])["state"] == "parked" and get_node(con, fresh["id"])["state"] == "active"
+    assert get_node(con, old["id"])["attrs"]["history"][-1]["before"]["state"] == "active"   # reversible, with history
+    assert "stale_proposed" not in {f["check"] for f in views.store_lint(con)}
+
+
+def test_receipt_dedupe_makes_reingest_a_noop(con):
+    n = mk(con, "Auth concept", kind="concept")
+    first = views.receipt_add(con, "pr", n["id"], {"url": "u"}, actor="w1", dedupe_key="pr:org/repo#7@abc")
+    again = views.receipt_add(con, "pr", n["id"], {"url": "u"}, actor="w1", dedupe_key="pr:org/repo#7@abc")
+    assert first["duplicate"] is False and again["duplicate"] is True
+    assert con.execute("SELECT COUNT(*) FROM receipt").fetchone()[0] == 1

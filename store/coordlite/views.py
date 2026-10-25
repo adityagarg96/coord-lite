@@ -1,5 +1,6 @@
 """Reads and the ONE write path. Every MCP write tool lands here, so validation and attribution are identical
 for every session. Each write records who made it (`actor`) in node history and the change log."""
+import json
 import re
 
 from . import timing
@@ -229,14 +230,17 @@ def edge_remove(con, edge_id: int, why: str, actor: str = "unknown") -> dict:
 
 
 def receipt_add(con, source: str, node_id: int, payload: dict | None = None, ts: str | None = None,
-                actor: str = "unknown") -> dict:
-    """Evidence that work happened (a PR, a test run, a doc sent). The only thing that moves touched_at."""
+                actor: str = "unknown", dedupe_key: str | None = None) -> dict:
+    """Evidence that work happened (a PR, a test run, a doc sent). The only thing that moves touched_at.
+    A repeated dedupe_key (e.g. 'pr:org/repo#123@<head sha>') is a no-op that reports duplicate=True."""
     with tx(con):
         if get_node(con, node_id) is None:
             raise KeyError(node_id)
-        rid = add_receipt(con, source, timing.normalize(ts) if ts else now_iso(), node_id, {**(payload or {}), "by": actor})
-        log_change(con, actor, node_id, f"receipt #{rid} ({source}) on #{node_id}")
-    return {"receipt_id": rid, "node": get_node(con, node_id)}
+        rid = add_receipt(con, source, timing.normalize(ts) if ts else now_iso(), node_id,
+                          {**(payload or {}), "by": actor}, dedupe_key=dedupe_key)
+        if rid is not None:
+            log_change(con, actor, node_id, f"receipt #{rid} ({source}) on #{node_id}")
+    return {"receipt_id": rid, "duplicate": rid is None, "node": get_node(con, node_id)}
 
 
 # ---------------------------------------------------------------- plan documents
@@ -379,6 +383,88 @@ def plan_lint(con, root_id: int) -> list[dict] | None:
         if len(ids) > 1:
             out.append({"node_id": ids[0], "check": "duplicate_title", "message": f"duplicate title '{t[:50]}' on {ids}"})
     return out
+
+
+# ---------------------------------------------------------------- hygiene (store-wide)
+
+ROOT_KINDS = {"plan", "concept", "goal", "project", "mission", "capital"}
+LIVE = ("raw", "seed", "active")
+UNDECIDED = ("PROPOSED", "DRAFT")
+_STOP = {"the", "a", "an", "of", "to", "and", "for", "in", "on", "with", "by", "is"}
+
+
+def _words(title: str) -> set[str]:
+    return set(re.findall(r"[a-z0-9]+", title.lower())) - _STOP
+
+
+def store_lint(con, stale_days: int = 14, proposed_budget: int = 15) -> list[dict]:
+    """Everything plan_lint checks, over every open root, plus what only a store-wide view can see: orphan roots,
+    undecided nodes nobody has touched in `stale_days`, roots carrying more than `proposed_budget` undecided
+    nodes, undecided nodes with no owner, and likely-duplicate siblings."""
+    rows = {r["id"]: dict(r) for r in con.execute(
+        "SELECT id, kind, title, parent_id, state, status, attrs, updated_at, touched_at, source_key FROM node")}
+    out = []
+
+    def root_of(i):
+        seen = set()
+        while rows[i]["parent_id"] is not None and i not in seen:
+            seen.add(i); i = rows[i]["parent_id"]
+        return i
+    for i, n in rows.items():
+        if n["parent_id"] is None and n["state"] in LIVE and n["kind"] not in ROOT_KINDS \
+                and not (n["source_key"] or "").startswith("brief:"):
+            out.append({"node_id": i, "check": "orphan_root",
+                        "message": f"#{i} {n['kind']} '{n['title'][:40]}' has no parent: place it under a plan or concept root"})
+    cutoff = con.execute("SELECT strftime('%Y-%m-%dT%H:%M:%fZ', 'now', ?)", (f"-{int(stale_days)} days",)).fetchone()[0]
+    per_root = {}
+    for i, n in rows.items():
+        if n["status"] not in UNDECIDED or n["state"] not in LIVE:
+            continue
+        per_root.setdefault(root_of(i), []).append(i)
+        last = max(n["updated_at"] or "", n["touched_at"] or "")
+        if last < cutoff:
+            out.append({"node_id": i, "check": "stale_proposed",
+                        "message": f"#{i} has been {n['status']} since {last[:10]}: ratify, supersede or park it"})
+        if not json.loads(n["attrs"] or "{}").get("owner"):
+            out.append({"node_id": i, "check": "proposed_without_owner",
+                        "message": f"#{i} is {n['status']} with no attrs.owner: someone must own the decision"})
+    for r, ids in per_root.items():
+        if len(ids) > proposed_budget:
+            out.append({"node_id": r, "check": "proposed_budget",
+                        "message": f"root #{r} carries {len(ids)} undecided nodes (budget {proposed_budget}): decide or park before adding more"})
+    siblings = {}
+    for i, n in rows.items():
+        if n["state"] in LIVE:
+            siblings.setdefault((n["parent_id"], n["kind"]), []).append(i)
+    for ids in siblings.values():
+        for x in range(len(ids)):
+            for y in range(x + 1, len(ids)):
+                ta, tb = rows[ids[x]]["title"], rows[ids[y]]["title"]
+                if ta.strip().lower() == tb.strip().lower():
+                    continue                                 # plan_lint's duplicate_title already reports it
+                a, b = _words(ta), _words(tb)
+                if a and b and len(a & b) / len(a | b) >= 0.75:
+                    out.append({"node_id": ids[x], "check": "possible_duplicate",
+                                "message": f"#{ids[x]} and #{ids[y]} look like the same thing: merge (supersede one) or retitle"})
+    for i, n in rows.items():
+        if n["parent_id"] is None and n["state"] in LIVE and n["kind"] in ROOT_KINDS:
+            out.extend(plan_lint(con, i) or [])
+    return out
+
+
+def hygiene_sweep(con, days: int = 14, apply: bool = False, actor: str = "unknown") -> dict:
+    """Park undecided (PROPOSED/DRAFT) nodes untouched for `days`. Dry run unless apply=True. Parking is reversible
+    (state back to active); nothing is deleted, and each parked node's history says why."""
+    cutoff = con.execute("SELECT strftime('%Y-%m-%dT%H:%M:%fZ', 'now', ?)", (f"-{int(days)} days",)).fetchone()[0]
+    stale = [dict(r) for r in con.execute(
+        f"SELECT id, title, status, updated_at FROM node WHERE status IN ({','.join('?' * len(UNDECIDED))}) "
+        f"AND state IN ({','.join('?' * len(LIVE))}) AND MAX(updated_at, COALESCE(touched_at, '')) < ? ORDER BY id",
+        (*UNDECIDED, *LIVE, cutoff))]
+    if apply:
+        for n in stale:
+            node_edit(con, n["id"], {"state": "parked"}, actor=actor)
+            log_change(con, actor, n["id"], f"#{n['id']} parked by hygiene sweep: {n['status']} with no decision in {days}d")
+    return {"applied": apply, "days": days, "parked" if apply else "would_park": stale}
 
 
 MAP_HEADER = ("> **For AI agents:** this map is exported from the coordination store and is read-only here: edit the store, "

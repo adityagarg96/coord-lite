@@ -186,10 +186,27 @@ def edge_remove(actor: str, edge_id: int, why: str) -> str:
 
 
 @mcp.tool()
-def receipt_add(actor: str, source: str, node_id: int, payload: dict | None = None, ts: str | None = None) -> str:
+def receipt_add(actor: str, source: str, node_id: int, payload: dict | None = None, ts: str | None = None,
+                dedupe_key: str | None = None) -> str:
     """Record evidence of progress on a node (source: 'pr', 'test', 'commit', 'doc', 'meeting'…; payload: url, sha,
-    result). Receipts are append-only and are the only thing that marks a node as recently worked on."""
-    return _j(views.receipt_add, con(), source, node_id, payload, ts, actor)
+    result). Receipts are append-only and are the only thing that marks a node as recently worked on. Pass a
+    dedupe_key (e.g. 'pr:org/repo#123@<head sha>') to make re-recording the same evidence a no-op."""
+    return _j(views.receipt_add, con(), source, node_id, payload, ts, actor, dedupe_key)
+
+
+@mcp.tool()
+def store_lint(stale_days: int = 14, proposed_budget: int = 15) -> str:
+    """Store-wide hygiene: every root's plan_lint plus orphan roots, PROPOSED/DRAFT nodes untouched for stale_days,
+    undecided nodes without an owner, roots over the undecided budget, and likely-duplicate siblings. The master
+    runs this at boot and after each batch of worker reports, and clears what it can."""
+    return _j(views.store_lint, con(), stale_days, proposed_budget)
+
+
+@mcp.tool()
+def hygiene_sweep(actor: str, days: int = 14, apply: bool = False) -> str:
+    """Park PROPOSED/DRAFT nodes nobody has touched for `days`. Dry run by default: call once without apply, show
+    the user the list, then apply. Parking is reversible (set state back to active); nothing is deleted."""
+    return _j(views.hygiene_sweep, con(), days, apply, actor)
 
 
 @mcp.tool()
