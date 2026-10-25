@@ -309,3 +309,61 @@ def test_editing_a_node_to_proposed_also_gives_it_an_owner(con):
     root = mk(con, "Plan", kind="plan")
     d = mk(con, "Use Postgres", kind="decision", parent=root["id"], status="DEFINED")
     assert views.node_edit(con, d["id"], {"status": "PROPOSED"}, actor="w3")["attrs"]["owner"] == "w3"
+
+
+def _import(con, title, kind, parent=None, status=None, path="docs/old-spec.md"):
+    n = views.node_create(con, kind, title, "copied from a record", parent, status, attrs={"source": {"path": path}}, actor="import")
+    con.execute("UPDATE node SET attrs = json_remove(attrs, '$.owner') WHERE id=?", (n["id"],))
+    return n
+
+
+def test_imported_history_is_left_alone_but_live_work_under_it_is_not(con):
+    plan = mk(con, "Backlog", kind="plan")
+    docs = views.node_create(con, "note", "Imported specs", "the old docs", actor="import")
+    views.node_edit(con, docs["id"], {}, actor="import", attrs={"imported": True})
+    old = [_import(con, f"Open question {i}", "decision", docs["id"], "PROPOSED") for i in range(3)]
+    copied = _import(con, "Who owns billing?", "decision", plan["id"], "PROPOSED")      # per-node source
+    _age(con, copied["id"], 60)
+    for o in old:
+        _age(con, o["id"], 60)
+    live = mk(con, "Retry policy", kind="decision", parent=plan["id"], status="PROPOSED")
+    _age(con, live["id"], 60)
+    flagged = {f["node_id"] for f in views.store_lint(con)}
+    assert docs["id"] not in flagged                                   # an imported root is a legitimate root
+    assert not flagged & {o["id"] for o in old} and copied["id"] not in flagged
+    assert live["id"] in flagged                                       # raised in a session: still live work
+    assert {f["node_id"] for f in views.store_lint(con, include_imported=True)} >= {o["id"] for o in old}
+    sweep = views.hygiene_sweep(con, days=14, actor="master")
+    assert [n["id"] for n in sweep["would_park"]] == [live["id"]]
+
+
+def test_index_shows_the_top_of_each_tree_at_scale(con):
+    plan = mk(con, "Backlog", kind="plan")
+    docs = views.node_create(con, "note", "Imported specs", "old docs", actor="import")
+    views.node_edit(con, docs["id"], {}, actor="import", attrs={"imported": True})
+    for i in range(3000):                                              # lots of old, low-id history
+        _import(con, f"Old decision {i} about something long ago", "decision", docs["id"], "DEFINED")
+    reqs = [mk(con, f"R{i} · requirement {i}", parent=plan["id"], attrs={"owner": "w1"}) for i in range(1, 41)]
+    cmap = mk(con, "Codebase map", kind="concept", body="The service, top down.")
+    sub = mk(con, "Payments", kind="concept", parent=cmap["id"], body="Charges go through the provider adapter with an idempotency key.")
+    prop = mk(con, "Adopt a circuit breaker", kind="decision", parent=sub["id"], status="PROPOSED")
+    idx = views.knowledge_index(con)
+    assert len(idx) <= 16_500
+    assert f"#{cmap['id']} concept: Codebase map" in idx and f"#{sub['id']} concept: Payments" in idx   # newest ids still shown
+    assert all(f"#{r['id']} [" in idx for r in reqs)                                                     # every requirement
+    assert f"#{prop['id']} decision [PROPOSED]" in idx
+    assert idx.count("Old decision") < 60                                                                # history doesn't crowd it
+
+
+def test_attrs_merge_on_edit_and_unverified_claims(con):
+    root = mk(con, "Codebase map", kind="concept", body="top")
+    c = mk(con, "Auth", kind="concept", parent=root["id"], body="Tokens are issued by the auth service and checked in middleware.")
+    claim = [{"claim": "tokens expire after 15 min", "journal_id": 7}]
+    views.node_edit(con, c["id"], {}, actor="master", attrs={"to_verify": claim})
+    assert any(f["check"] == "unverified_claims" and f["node_id"] == c["id"] for f in views.store_lint(con))
+    assert "(unverified claims)" in views.knowledge_index(con)
+    views.node_edit(con, c["id"], {}, actor="master", attrs={"to_verify": None})
+    n = get_node(con, c["id"])
+    assert "to_verify" not in n["attrs"] and n["attrs"]["history"][-1]["before"]["attrs.to_verify"] == claim
+    with pytest.raises(ValueError):
+        views.node_edit(con, c["id"], {}, actor="master", attrs={"history": []})

@@ -53,7 +53,7 @@ an index is what every session reads first. Here the knowledge base is the graph
 | `daily/` logs, append-only | the `journal` table: append-only bodies, kept out of the graph |
 | SessionEnd / PreCompact hooks → background flush | every ~150k tokens of context growth the plugin asks the session's own model (`session.generate`, which adds no turn) for an entry in five sections: Context / Decisions / **Proposals** / Lessons / Action items. Before any compaction, a raw excerpt of recent turns is saved if work since the last flush would otherwise be lost. `journal_write` lets a session note a milestone itself. |
 | `compile.py` (daily → concept/connection articles), auto after 6 PM | the `knowledge-compile` skill folds the journal into concept / decision / lesson nodes and edges, under the upkeep rules. The plugin asks the master to run it (in a background subagent) when 8 entries are pending, or once a day after 18:00. |
-| `index.md` injected at SessionStart | `knowledge_index`: one line per live concept / decision / lesson / Q&A, appended to every master and worker system prompt (snapshotted per session, refreshed after compaction), and in every boot packet |
+| `index.md` injected at SessionStart | `knowledge_index`: the top of each tree (every root with its overview children, every requirement on one line, open proposals, then recently changed knowledge, each section with its own budget, ~16k chars), appended to every master and worker system prompt (snapshotted per session, refreshed after compaction) and in every boot packet |
 | `query.py --file-back` | the `knowledge-query` skill: answers with `#id` citations, files reusable answers as `qa` nodes linked to what they cite |
 | `log.md`, `lint.py` | the `change` table; `store_lint` (adds `journal_backlog` and `concept_sparse` to the checks below) |
 
@@ -64,6 +64,17 @@ over ~100k-token windows into the journal, then the same compile.
 Found live: a model will promote a suggestion to a decision on the way through (a worker's "I'd opt for X"
 reached a concept body as "X is used"). The flush therefore separates **Decisions** (made or agreed, by whom) from
 **Proposals**, and the compile skill turns proposals into PROPOSED decision nodes with an owner, never into facts.
+
+**Code outranks the journal.** A journal entry is secondhand. The compile skill writes a code fact into a concept
+body only after checking it at the current commit (cited as `path:line@sha`); otherwise the claim waits in the
+node's `attrs.to_verify`, which `store_lint` reports.
+
+## Imported records
+
+Nodes loaded from an existing document or archive are history, not open work. Mark them with `attrs.source`
+(per node) or put the batch under a root with `attrs.imported: true`. `store_lint`, `hygiene_sweep` and the index
+then leave them alone (`store_lint(include_imported=true)` still checks them), while nodes raised in a live session
+stay checked even under an imported plan root.
 
 ## Keeping the graph clean
 
@@ -89,7 +100,7 @@ receipt keyed `pr:<repo>#<n>@<head sha>`, so re-ingesting a PR only processes co
 ## Tests
 
 ```sh
-cd store && uv run pytest -q            # 24 tests, tmp SQLite only (incl. 5 concurrent writers, a real stdio MCP round trip)
+cd store && uv run pytest -q            # 27 tests, tmp SQLite only (incl. 5 concurrent writers, a real stdio MCP round trip)
 cd plugins/handoff && node --test logic.test.ts journal.test.ts   # 17 tests, handoff + journal against a fake host
 ```
 

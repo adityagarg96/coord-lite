@@ -98,19 +98,26 @@ def node_create(con, kind: str, title: str, body: str | None = None, parent_id=N
     return get_node(con, nid)
 
 
-def node_edit(con, node_id: int, fields: dict, actor: str = "unknown") -> dict:
-    """Only the fields passed change. History (who, when, what it was before) is kept on the node."""
+RESERVED_ATTRS = {"history", "superseded_by", "supersedes", "created_by", "body_version", "summary_body_version"}
+
+
+def node_edit(con, node_id: int, fields: dict, actor: str = "unknown", attrs: dict | None = None) -> dict:
+    """Only the fields passed change. History (who, when, what it was before) is kept on the node. `attrs` merges
+    keys into the node's attrs (a None value removes the key); bookkeeping keys are refused."""
     if set(fields) - set(EDITABLE):
         raise ValueError(f"editable fields: {EDITABLE}")
     if "status" in fields and fields["status"] not in STATUSES:
         raise ValueError(f"status must be one of {sorted(s for s in STATUSES if s)}")
     if "state" in fields and fields["state"] not in STATES_SETTABLE:
         raise ValueError(f"state must be one of {sorted(STATES_SETTABLE)}")
+    if attrs and set(attrs) & RESERVED_ATTRS:
+        raise ValueError(f"attrs keys {sorted(set(attrs) & RESERVED_ATTRS)} are bookkeeping and cannot be set")
     with tx(con):
         n = get_node(con, node_id)
         if n is None:
             raise KeyError(node_id)
         changes = {k: v for k, v in fields.items() if v != n.get(k)}
+        attr_changes = {k: v for k, v in (attrs or {}).items() if n["attrs"].get(k) != v}
         summary = changes.pop("summary", None)
         if "parent_id" in changes and changes["parent_id"] is not None:
             if changes["parent_id"] == node_id or get_node(con, changes["parent_id"]) is None:
@@ -124,9 +131,9 @@ def node_edit(con, node_id: int, fields: dict, actor: str = "unknown") -> dict:
             raise ValueError("dropping needs why_dropped")
         if changes.get("state") and changes["state"] != "dropped" and n["state"] == "dropped":
             changes.setdefault("why_dropped", None)
-        if not changes and summary is None:
+        if not changes and summary is None and not attr_changes:
             return n
-        patch = {}
+        patch = dict(attr_changes)
         if "body" in changes:
             bv = n["attrs"].get("body_version", 0) + 1
             patch.update(body_version=bv, summary=summary, summary_body_version=bv if summary else None)
@@ -134,11 +141,16 @@ def node_edit(con, node_id: int, fields: dict, actor: str = "unknown") -> dict:
             patch.update(summary=summary, summary_body_version=n["attrs"].get("body_version", 0))
         if changes.get("status") in ("PROPOSED", "DRAFT") and not n["attrs"].get("owner"):
             patch["owner"] = actor                           # same default as node_create
-        history = (n["attrs"].get("history") or []) + [{"at": now_iso(), "by": actor, "before": {k: n.get(k) for k in changes}}]
+        before = {k: n.get(k) for k in changes} | {f"attrs.{k}": n["attrs"].get(k) for k in attr_changes}
+        history = (n["attrs"].get("history") or []) + [{"at": now_iso(), "by": actor, "before": before}]
         patch["history"] = history[-20:]
         update_node(con, node_id, attrs_patch=patch, **changes)
+        if any(v is None for v in attr_changes.values()):
+            con.execute("UPDATE node SET attrs = json_remove(attrs, " + ", ".join("?" for k, v in attr_changes.items() if v is None) + ") WHERE id=?",
+                        (*[f"$.{k}" for k, v in attr_changes.items() if v is None], node_id))
         log_change(con, actor, node_id, f"#{node_id} {n['title'][:40]}: " + ", ".join(
-            [f"{k}→{str(v)[:30]}" if k != "body" else "body" for k, v in changes.items()] + (["summary"] if summary is not None else [])))
+            [f"{k}→{str(v)[:30]}" if k != "body" else "body" for k, v in changes.items()]
+            + [f"attrs.{k}" for k in attr_changes] + (["summary"] if summary is not None else [])))
     return get_node(con, node_id)
 
 
@@ -401,12 +413,41 @@ def _words(title: str) -> set[str]:
     return set(re.findall(r"[a-z0-9]+", title.lower())) - _STOP
 
 
-def store_lint(con, stale_days: int = 14, proposed_budget: int = 15) -> list[dict]:
+def _flagged_imported(n: dict) -> bool:
+    a = json.loads(n["attrs"] or "{}") if isinstance(n["attrs"], str) else (n["attrs"] or {})
+    key = n.get("source_key") or ""
+    return bool((key and not key.startswith("brief:")) or a.get("source") or a.get("imported"))
+
+
+def imported_ids(con, rows: dict | None = None) -> set[int]:
+    """Nodes that are history rather than live work: loaded from an existing record (the node carries a source_key
+    or attrs.source), or sitting under a root marked attrs.imported. Nodes raised in a live session stay live even
+    under an imported plan root; only an explicit attrs.imported on an ancestor makes a whole branch history."""
+    rows = rows or {r["id"]: dict(r) for r in con.execute("SELECT id, parent_id, attrs, source_key FROM node")}
+    out, branch = set(), {}
+
+    def archived(i):
+        if i is None:
+            return False
+        if i not in branch:
+            branch[i] = None                                  # cycle guard
+            a = json.loads(rows[i]["attrs"] or "{}")
+            branch[i] = bool(a.get("imported")) or archived(rows[i]["parent_id"])
+        return bool(branch[i])
+    for i, n in rows.items():
+        if _flagged_imported(n) or archived(i):
+            out.add(i)
+    return out
+
+
+def store_lint(con, stale_days: int = 14, proposed_budget: int = 15, include_imported: bool = False) -> list[dict]:
     """Everything plan_lint checks, over every open root, plus what only a store-wide view can see: orphan roots,
     undecided nodes nobody has touched in `stale_days`, roots carrying more than `proposed_budget` undecided
-    nodes, undecided nodes with no owner, and likely-duplicate siblings."""
+    nodes, undecided nodes with no owner, likely-duplicate siblings, sparse concepts, unverified claims and a
+    journal backlog. Imported history (see imported_ids) is left out unless include_imported."""
     rows = {r["id"]: dict(r) for r in con.execute(
         "SELECT id, kind, title, parent_id, state, status, attrs, updated_at, touched_at, source_key FROM node")}
+    hist = set() if include_imported else imported_ids(con, rows)
     out = []
 
     def root_of(i):
@@ -416,13 +457,13 @@ def store_lint(con, stale_days: int = 14, proposed_budget: int = 15) -> list[dic
         return i
     for i, n in rows.items():
         if n["parent_id"] is None and n["state"] in LIVE and n["kind"] not in ROOT_KINDS \
-                and not (n["source_key"] or "").startswith("brief:"):
+                and not _flagged_imported(n) and not json.loads(n["attrs"] or "{}").get("imported"):
             out.append({"node_id": i, "check": "orphan_root",
                         "message": f"#{i} {n['kind']} '{n['title'][:40]}' has no parent: place it under a plan or concept root"})
     cutoff = con.execute("SELECT strftime('%Y-%m-%dT%H:%M:%fZ', 'now', ?)", (f"-{int(stale_days)} days",)).fetchone()[0]
     per_root = {}
     for i, n in rows.items():
-        if n["status"] not in UNDECIDED or n["state"] not in LIVE:
+        if n["status"] not in UNDECIDED or n["state"] not in LIVE or i in hist:
             continue
         per_root.setdefault(root_of(i), []).append(i)
         last = max(n["updated_at"] or "", n["touched_at"] or "")
@@ -438,7 +479,7 @@ def store_lint(con, stale_days: int = 14, proposed_budget: int = 15) -> list[dic
                         "message": f"root #{r} carries {len(ids)} undecided nodes (budget {proposed_budget}): decide or park before adding more"})
     siblings = {}
     for i, n in rows.items():
-        if n["state"] in LIVE:
+        if n["state"] in LIVE and i not in hist:
             siblings.setdefault((n["parent_id"], n["kind"]), []).append(i)
     for ids in siblings.values():
         for x in range(len(ids)):
@@ -451,7 +492,13 @@ def store_lint(con, stale_days: int = 14, proposed_budget: int = 15) -> list[dic
                     out.append({"node_id": ids[x], "check": "possible_duplicate",
                                 "message": f"#{ids[x]} and #{ids[y]} look like the same thing: merge (supersede one) or retitle"})
     for i, n in rows.items():
-        if n["kind"] == "concept" and n["state"] in LIVE and n["parent_id"] is not None:
+        if n["state"] not in LIVE or i in hist:
+            continue
+        a = json.loads(n["attrs"] or "{}")
+        if a.get("to_verify"):
+            out.append({"node_id": i, "check": "unverified_claims",
+                        "message": f"#{i} carries {len(a['to_verify'])} unverified claim(s) from the journal: check them against the code, then fold in or drop"})
+        if n["kind"] == "concept" and n["parent_id"] is not None:
             body = con.execute("SELECT body FROM node WHERE id=?", (i,)).fetchone()["body"] or ""
             if len(body.split()) < 12:
                 out.append({"node_id": i, "check": "concept_sparse",
@@ -463,18 +510,20 @@ def store_lint(con, stale_days: int = 14, proposed_budget: int = 15) -> list[dic
                     "message": f"{backlog[0]} journal entries older than 2 days are uncompiled (oldest {backlog[1][:10]}): run the knowledge-compile skill"})
     for i, n in rows.items():
         if n["parent_id"] is None and n["state"] in LIVE and n["kind"] in ROOT_KINDS:
-            out.extend(plan_lint(con, i) or [])
+            out.extend(f for f in (plan_lint(con, i) or []) if f["node_id"] not in hist)
     return out
 
 
 def hygiene_sweep(con, days: int = 14, apply: bool = False, actor: str = "unknown") -> dict:
     """Park undecided (PROPOSED/DRAFT) nodes untouched for `days`. Dry run unless apply=True. Parking is reversible
-    (state back to active); nothing is deleted, and each parked node's history says why."""
+    (state back to active); nothing is deleted, and each parked node's history says why. Imported history is
+    never swept: a proposal copied from an old record is a record, not an open question."""
     cutoff = con.execute("SELECT strftime('%Y-%m-%dT%H:%M:%fZ', 'now', ?)", (f"-{int(days)} days",)).fetchone()[0]
+    hist = imported_ids(con)
     stale = [dict(r) for r in con.execute(
         f"SELECT id, title, status, updated_at FROM node WHERE status IN ({','.join('?' * len(UNDECIDED))}) "
         f"AND state IN ({','.join('?' * len(LIVE))}) AND MAX(updated_at, COALESCE(touched_at, '')) < ? ORDER BY id",
-        (*UNDECIDED, *LIVE, cutoff))]
+        (*UNDECIDED, *LIVE, cutoff)) if r["id"] not in hist]
     if apply:
         for n in stale:
             node_edit(con, n["id"], {"state": "parked"}, actor=actor)
@@ -544,26 +593,57 @@ def _gist(n: dict) -> str:
     return s[:140]
 
 
-def knowledge_index(con, max_chars: int = 20_000) -> str:
-    """The catalogue a session reads first: one line per live concept / decision / lesson / Q&A, grouped by root.
-    Open the full node with node_get or plan_render; this is only the map of what exists."""
-    marks = ",".join("?" * len(KNOWLEDGE_KINDS))
-    rows = con.execute(f"SELECT * FROM node WHERE kind IN ({marks}) AND state NOT IN ('done','dropped','parked') "
-                       f"AND json_extract(attrs,'$.superseded_by') IS NULL ORDER BY parent_id, id", KNOWLEDGE_KINDS).fetchall()
+def knowledge_index(con, max_chars: int = 16_000) -> str:
+    """The catalogue a session reads first, built to stay useful at thousands of nodes: the TOP of each tree, not
+    its first N rows. Sections, each with its own budget: every live root with its direct children (the overview),
+    every live requirement on one line, open proposals (newest first, imported history excluded), then the
+    knowledge most recently changed. Everything else is one `search` or `plan_render` away."""
+    rows = {r["id"]: node_dict(con, r) for r in con.execute(
+        "SELECT * FROM node WHERE state NOT IN ('done','dropped','parked') AND json_extract(attrs,'$.superseded_by') IS NULL")}
     if not rows:
         return "(the knowledge index is empty)"
-    lines, used = [f"# Knowledge index ({len(rows)} nodes; open any with node_get)"], 0
-    for r in rows:
-        n = node_dict(con, r)
+    hist = imported_ids(con)
+    shown: set[int] = set()
+
+    def line(n, indent=""):
         pill = f" [{n['status']}]" if n.get("status") else ""
-        line = f"- #{n['id']} {n['kind']}{pill}: {n['title']}" + (f" — {_gist(n)}" if _gist(n) else "") + \
-               (f" (in #{n['parent_id']} {n['parent_title'][:30]})" if n["parent_id"] else "")
-        if used + len(line) > max_chars:
-            lines.append(f"(… {len(rows) - len(lines) + 1} more: use search)")
-            break
-        lines.append(line)
-        used += len(line)
-    return "\n".join(lines)
+        flag = " (unverified claims)" if n["attrs"].get("to_verify") else ""
+        g = _gist(n)
+        return f"{indent}- #{n['id']} {n['kind']}{pill}: {n['title'][:90]}" + (f" — {g}" if g else "") + flag
+
+    def section(title, items, budget, more_hint):
+        body, used = [], 0
+        for text, nid in items:
+            if used + len(text) > budget:
+                body.append(f"  (… {len(items) - len(body)} more: {more_hint})")
+                break
+            body.append(text); used += len(text); shown.add(nid)
+        return [f"## {title}"] + body if body else []
+
+    roots = sorted((n for n in rows.values() if n["parent_id"] is None and not (n.get("attrs", {}).get("scope") and n["kind"] == "note")),
+                   key=lambda n: (n["kind"] not in ("concept", "plan"), n["id"]))
+    kids = {}
+    for n in rows.values():
+        kids.setdefault(n["parent_id"], []).append(n)
+    tree_items = []
+    for r in roots:
+        tree_items.append((line(r) + f" ({r['child_count']} children)", r["id"]))
+        if r["kind"] != "plan" and r["id"] not in hist:     # a plan's children are its requirements, listed below;
+                                                               # an imported branch is history: its root line is enough
+            tree_items += [(line(c, "  "), c["id"]) for c in sorted(kids.get(r["id"], []), key=lambda c: c["id"])[:25]]
+    reqs = [(f"- #{n['id']} [{n.get('status') or n['state']}] {n['title'][:80]}" +
+             (f" (owner {n['attrs']['owner']})" if n["attrs"].get("owner") else ""), n["id"])
+            for n in sorted(rows.values(), key=lambda n: n["id"]) if n["kind"] == "requirement"]
+    props = [(line(n), n["id"]) for n in sorted(rows.values(), key=lambda n: n["updated_at"], reverse=True)
+             if n.get("status") in UNDECIDED and n["state"] in LIVE and n["id"] not in hist and n["kind"] != "requirement"]
+    out = [f"# Knowledge index ({len(rows)} live nodes; this is the top of each tree, open anything with node_get)"]
+    out += section("Trees and their overview", tree_items, int(max_chars * 0.35), "plan_render the root")
+    out += section("Requirements", reqs, int(max_chars * 0.30), "plan_render the plan root")
+    out += section("Open proposals", props, int(max_chars * 0.15), "search, or store_lint")
+    recent = [(line(n), n["id"]) for n in sorted(rows.values(), key=lambda n: max(n["updated_at"] or "", n["touched_at"] or ""), reverse=True)
+              if n["kind"] in KNOWLEDGE_KINDS and n["id"] not in shown and n["id"] not in hist]
+    out += section("Recently changed knowledge", recent, max_chars - sum(len(x) for x in out), "search")
+    return "\n".join(out)
 
 
 MAP_HEADER = ("> **For AI agents:** this map is exported from the coordination store and is read-only here: edit the store, "

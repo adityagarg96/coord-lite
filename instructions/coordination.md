@@ -34,8 +34,9 @@ A graph rots one harmless-looking node at a time. These rules are what stop it.
    edit that node (`node_edit`) or add an edge; a near-duplicate costs every later reader.
 2. **Edit beats add.** New facts about a thing go into its body. Add a node only for a genuinely new thing:
    a requirement, a decision, a subsystem, a failed approach worth remembering.
-3. **Every node has a home.** Give it the parent it belongs under; the only roots are the plan root and the
-   concept root (plus a project or goal root if the user asks for one). `store_lint` flags strays.
+3. **Every node has a home.** Give it the parent it belongs under; the roots are the plan root, the concept
+   root, and any root of imported records (plus a project or goal root if the user asks for one). `store_lint`
+   flags strays.
 4. **Undecided is temporary.** A PROPOSED or DRAFT node needs `attrs.owner` (who decides) and should be
    decided within two weeks: ratify it (status DEFINED or CONFIRMED), supersede it, or let the sweep park it.
    Don't create a PROPOSED node you aren't prepared to chase.
@@ -44,6 +45,10 @@ A graph rots one harmless-looking node at a time. These rules are what stop it.
    history and drop out of everyone's working view.
 7. **Bodies are short and current.** A body states what is true now, in a few sentences, with `#id` links.
    History lives in the node's edit history and in superseded nodes, not in an ever-growing body.
+8. **Imported records are history.** When you load an existing document, spec or archive into the store, give
+   each node `attrs.source` (its path) or put the batch under one root marked `attrs.imported: true`. Lint, the
+   sweep and the index then treat it as history rather than open work; supersede it with a live node when it
+   stops being true.
 
 ## The knowledge loop
 

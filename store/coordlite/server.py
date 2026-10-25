@@ -148,13 +148,15 @@ def node_create(actor: str, kind: str, title: str, body: str = "", parent_id: in
 @mcp.tool()
 def node_edit(actor: str, node_id: int, title: str | None = None, body: str | None = None, summary: str | None = None,
               state: str | None = None, why_dropped: str | None = None, parent_id: int | None = None,
-              status: str | None = None, due_at: str | None = None) -> str:
+              status: str | None = None, due_at: str | None = None, attrs: dict | None = None) -> str:
     """Edit an EXISTING node; only the fields you pass change, and the prior values are kept in its history.
     state: seed|active|parked|done|dropped (dropping needs why_dropped; nothing is deleted). Do NOT use this to
-    change your mind about a DEFINED decision or requirement: use node_supersede so the reversal is recorded."""
+    change your mind about a DEFINED decision or requirement: use node_supersede so the reversal is recorded.
+    attrs merges keys into the node's attrs (null removes one): e.g. owner, exit_test, to_verify (unverified claims),
+    imported: true (marks a whole branch as history that lint and the sweep leave alone)."""
     return _j(views.node_edit, con(), node_id, _clean({"title": title, "body": body, "summary": summary, "state": state,
                                                        "why_dropped": why_dropped, "parent_id": parent_id,
-                                                       "status": status, "due_at": due_at}), actor)
+                                                       "status": status, "due_at": due_at}), actor, attrs)
 
 
 @mcp.tool()
@@ -226,11 +228,12 @@ def journal_mark_compiled(actor: str, journal_ids: list, node_ids: list) -> str:
 
 
 @mcp.tool()
-def store_lint(stale_days: int = 14, proposed_budget: int = 15) -> str:
+def store_lint(stale_days: int = 14, proposed_budget: int = 15, include_imported: bool = False) -> str:
     """Store-wide hygiene: every root's plan_lint plus orphan roots, PROPOSED/DRAFT nodes untouched for stale_days,
     undecided nodes without an owner, roots over the undecided budget, and likely-duplicate siblings. The master
-    runs this at boot and after each batch of worker reports, and clears what it can."""
-    return _j(views.store_lint, con(), stale_days, proposed_budget)
+    runs this at boot and after each batch of worker reports, and clears what it can. Imported history (nodes
+    loaded from a record, or under a root marked attrs.imported) is skipped unless include_imported."""
+    return _j(views.store_lint, con(), stale_days, proposed_budget, include_imported)
 
 
 @mcp.tool()

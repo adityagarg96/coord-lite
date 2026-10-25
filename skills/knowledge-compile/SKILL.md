@@ -16,14 +16,26 @@ now; a decision node records a choice that was actually made, by whom. A suggest
 a "we could" is a **proposal**: it becomes a PROPOSED `decision` with `attrs.owner`, never a sentence in a concept
 body and never a CONFIRMED decision. When an entry is ambiguous about which it is, treat it as a proposal.
 
+**The code outranks the journal.** A journal entry is a session's own account of its work: secondhand. Before a
+claim about what the code does goes into a concept body, check it against the code at the current commit (open
+the file, find the line) and cite it in the body as `path:line@<short sha>`. If you can't check it now, don't touch
+the body: add the claim to the node with `node_edit(attrs={"to_verify": [{"claim": ..., "journal_id": ...}]})`
+(append to any list already there); `store_lint` lists those until someone verifies or drops them. Never let a
+journal claim overwrite a statement that already cites code unless you confirmed the code changed.
+
+**Imported history stays history.** Nodes loaded from an earlier record (they carry `attrs.source` or a
+`source_key`, or sit under a root marked `attrs.imported`) are what that record said at the time. Don't edit them
+to match the journal; if the journal shows one is no longer true, supersede it with a live node.
+
 1. **Load.** `journal_pending` (20 at a time). Read `knowledge_index` once so you know what exists. For a
    precompact entry (raw turns), first reduce it in your head to the same five sections; most of a raw excerpt is
    routine and should be dropped.
 
 2. **For each piece of knowledge, find its home before writing.** `search` its key words, open candidates with
    `node_get`. Then, in this order of preference:
-   - **Update** an existing node with a fact the entry observed: `node_edit` its body so it states what is true now, with file paths and `#id`
-     links. A single entry usually touches 1–5 existing nodes.
+   - **Update** an existing node with a fact the entry observed and you verified: `node_edit` its body so it states
+     what is true now, citing `path:line@sha` and `#id` links. Unverified claims go to `to_verify` (above).
+     A single entry usually touches 1–5 existing nodes.
    - **Reverse** one: if the entry shows an existing DEFINED or CONFIRMED node is now wrong, `node_supersede` it,
      citing the entry. If it's unclear which is right, create a PROPOSED `decision` with `attrs.owner` set to the
      owner of the area (or `master`) instead of guessing.
