@@ -249,3 +249,56 @@ def test_receipt_dedupe_makes_reingest_a_noop(con):
     again = views.receipt_add(con, "pr", n["id"], {"url": "u"}, actor="w1", dedupe_key="pr:org/repo#7@abc")
     assert first["duplicate"] is False and again["duplicate"] is True
     assert con.execute("SELECT COUNT(*) FROM receipt").fetchone()[0] == 1
+
+
+def test_journal_is_append_only_and_dedupes_a_burst(con):
+    a = views.journal_write(con, "w1", "**Context:** auth", session_id="s1", kind="flush")
+    b = views.journal_write(con, "w1", "**Context:** again", session_id="s1", kind="flush")
+    assert b == {"id": a["id"], "duplicate": True}
+    with pytest.raises(sqlite3.IntegrityError):
+        con.execute("UPDATE journal SET body='rewritten' WHERE id=?", (a["id"],))
+    with pytest.raises(sqlite3.IntegrityError):
+        con.execute("DELETE FROM journal")
+    with pytest.raises(ValueError):
+        views.journal_write(con, "w1", "   ")
+
+
+def test_compile_loop_bookkeeping(con):
+    j1 = views.journal_write(con, "w1", views.journal_sections({"context": "billing", "lessons": "retries double-charge"}))
+    j2 = views.journal_write(con, "w2", "**Context:** nothing much")
+    assert views.journal_pending(con)["pending_total"] == 2
+    assert "**Lessons:**" in views.journal_pending(con)["entries"][0]["body"]
+    root = mk(con, "Codebase map", kind="concept", body="the system")
+    lesson = mk(con, "Retries double-charge", kind="lesson", parent=root["id"], body="Idempotency key missing on retry.")
+    stats = views.journal_mark_compiled(con, [j1["id"], j2["id"]], [lesson["id"]], actor="master")
+    assert stats["pending"] == 0 and stats["last_compiled"]
+    con.execute("UPDATE journal SET compiled_at=NULL WHERE id=?", (j2["id"],))   # bookkeeping columns stay mutable
+    idx = views.knowledge_index(con)
+    assert f"#{lesson['id']} lesson: Retries double-charge — Idempotency key missing on retry." in idx
+
+
+def test_lint_flags_journal_backlog_and_sparse_concepts(con):
+    root = mk(con, "Codebase map", kind="concept", body="entry")
+    thin = mk(con, "Cache", kind="concept", parent=root["id"], body="it caches")
+    old = views.journal_write(con, "w1", "**Context:** old")
+    con.execute("PRAGMA ignore_check_constraints=1")
+    con.execute("DROP TRIGGER journal_body_immutable")                            # test-only: age the entry
+    con.execute("UPDATE journal SET at=strftime('%Y-%m-%dT%H:%M:%fZ','now','-3 days') WHERE id=?", (old["id"],))
+    checks = {f["check"]: f for f in views.store_lint(con)}
+    assert checks["concept_sparse"]["node_id"] == thin["id"]
+    assert "journal_backlog" in checks
+
+
+def test_boot_packet_carries_index_and_backlog(con):
+    root = mk(con, "Codebase map", kind="concept", body="entry point of the system, see children")
+    views.journal_write(con, "w1", "**Context:** x")
+    pkt = boot_packet(con)
+    assert "## Knowledge index" in pkt and f"#{root['id']} concept: Codebase map" in pkt
+    assert "1 uncompiled journal entries" in pkt
+
+
+def test_an_undecided_node_is_owned_by_its_creator_unless_named(con):
+    root = mk(con, "Plan", kind="plan")
+    a = mk(con, "Maybe a circuit breaker", kind="decision", parent=root["id"], status="PROPOSED", actor="master")
+    b = mk(con, "Maybe gRPC", kind="decision", parent=root["id"], status="PROPOSED", actor="master", attrs={"owner": "w2"})
+    assert a["attrs"]["owner"] == "master" and b["attrs"]["owner"] == "w2"

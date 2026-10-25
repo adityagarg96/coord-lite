@@ -7,6 +7,7 @@
                                          record the handoff (end this session row, open the next), then print boot
 """
 import argparse
+import json
 import sys
 
 from . import views
@@ -49,6 +50,11 @@ def boot_packet(con, scope: str = "master", since: str | None = None) -> str:
     recent = views.changes_since(con, None, limit=30)["changes"]
     if recent:
         parts.append("## Last 30 writes (changes_since)\n" + "\n".join(f"- {c['at'][:19]} {c['actor']}: {c['what']}" for c in recent))
+    js = views.journal_stats(con)
+    if js["pending"]:
+        parts.append(f"## Journal\n{js['pending']} uncompiled journal entries (oldest {js['oldest_pending'][:10]}). "
+                     "Compile them with the knowledge-compile skill (in a background subagent) when you have a quiet moment.")
+    parts.append("## Knowledge index\n" + views.knowledge_index(con, max_chars=12_000))
     parts.append("## Continue\nTell the user in one line that you resumed from a handoff and what you will do next, "
                  "then carry on with the brief's `next`. Use `peers list` to see the live sessions.")
     return "\n\n".join(parts)
@@ -68,6 +74,14 @@ def main(argv=None):
     h.add_argument("--tokens", type=int)
     h.add_argument("--since")
     h.add_argument("--why", default="handoff")
+    j = sub.add_parser("journal", help="append a journal entry; body on stdin")
+    j.add_argument("--actor", required=True)
+    j.add_argument("--session")
+    j.add_argument("--agent")
+    j.add_argument("--kind", default="flush", choices=("flush", "precompact", "manual"))
+    j.add_argument("--tokens", type=int)
+    sub.add_parser("index")
+    sub.add_parser("journal-stats")
     x = sub.add_parser("export")
     x.add_argument("--root", type=int, required=True)
     x.add_argument("--out", help="file to write (default: stdout)")
@@ -84,6 +98,12 @@ def main(argv=None):
     elif a.cmd == "handoff":
         views.session_handoff(con, a.scope, a.session, a.why, a.tokens)
         sys.stdout.write(boot_packet(con, a.scope, a.since))
+    elif a.cmd == "journal":
+        print(json.dumps(views.journal_write(con, a.actor, sys.stdin.read(), a.session, a.agent, a.kind, a.tokens)))
+    elif a.cmd == "index":
+        sys.stdout.write(views.knowledge_index(con))
+    elif a.cmd == "journal-stats":
+        print(json.dumps(views.journal_stats(con)))
     elif a.cmd == "export":
         doc = views.map_export(con, a.root)
         if doc is None:

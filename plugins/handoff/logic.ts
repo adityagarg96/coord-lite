@@ -58,7 +58,8 @@ export const handoffText = (scope: string) =>
   `Call the store tool brief_write (actor "${scope}", scope "${scope}") with all five slots REWRITTEN: ` +
   `purpose · happened · open · next · ruled_out. Write it so your successor can continue without asking anyone: ` +
   `what you were in the middle of, which sessions own what, what you promised whom, and what you ruled out. ` +
-  `Make sure every decision is already in the store as nodes. Then reply with one line.`
+  `Make sure every decision is already in the store as nodes, and journal_write anything learned that isn't. ` +
+  `Then reply with one line.`
 
 /** The context the last model call actually read and wrote. Over-counting only hands off early. */
 export function contextTokens(t: Tokens): number {

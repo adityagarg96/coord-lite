@@ -45,6 +45,18 @@ A graph rots one harmless-looking node at a time. These rules are what stop it.
 7. **Bodies are short and current.** A body states what is true now, in a few sentences, with `#id` links.
    History lives in the node's edit history and in superseded nodes, not in an ever-growing body.
 
+## The knowledge loop
+
+What sessions learn flows into the graph in three steps, so nobody has to re-read a long transcript:
+
+- **Journal.** The plugin asks your own model for a short journal entry every ~150k tokens of context growth,
+  and saves a raw excerpt before any compaction. Call `journal_write` yourself at a milestone (a decision made,
+  a hard bug understood, a dead end abandoned). The journal is raw material; it never clutters the graph.
+- **Compile.** The master runs the `knowledge-compile` skill (in a background subagent) when the backlog builds
+  up or once a day; it folds the journal into concept, decision and lesson nodes under the upkeep rules.
+- **Index.** Your system prompt carries a snapshot of `knowledge_index` (what the team knows). Use the
+  `knowledge-query` skill to answer "what do we know about X" questions from it, with `#id` citations.
+
 ## Two trees
 
 - **Requirements**: one `plan` root; each requirement is a `requirement` node with `attrs.exit_test` (how we

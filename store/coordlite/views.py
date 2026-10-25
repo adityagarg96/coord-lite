@@ -89,6 +89,8 @@ def node_create(con, kind: str, title: str, body: str | None = None, parent_id=N
         if state == "dropped" and not why_dropped:
             raise ValueError("a dropped node needs why_dropped")
         tf = {k: v for k, v in (time or {}).items() if k in timing.TIME_FIELDS}
+        if status in ("PROPOSED", "DRAFT") and not (attrs or {}).get("owner"):
+            attrs = {**(attrs or {}), "owner": actor}       # whoever proposes it chases it, unless someone else is named
         nid = insert_node(con, kind=kind, title=title.strip(), body=body, parent_id=parent["id"] if parent else None,
                           capital=capital, mission=mission, state=state, status=status, why_dropped=why_dropped,
                           attrs={**(attrs or {}), "created_by": actor}, **tf)
@@ -447,6 +449,17 @@ def store_lint(con, stale_days: int = 14, proposed_budget: int = 15) -> list[dic
                     out.append({"node_id": ids[x], "check": "possible_duplicate",
                                 "message": f"#{ids[x]} and #{ids[y]} look like the same thing: merge (supersede one) or retitle"})
     for i, n in rows.items():
+        if n["kind"] == "concept" and n["state"] in LIVE and n["parent_id"] is not None:
+            body = con.execute("SELECT body FROM node WHERE id=?", (i,)).fetchone()["body"] or ""
+            if len(body.split()) < 12:
+                out.append({"node_id": i, "check": "concept_sparse",
+                            "message": f"concept #{i} '{n['title'][:40]}' says almost nothing ({len(body.split())} words): fill it or fold it into its parent"})
+    backlog = con.execute("SELECT COUNT(*), MIN(at) FROM journal WHERE compiled_at IS NULL "
+                          "AND at < strftime('%Y-%m-%dT%H:%M:%fZ','now','-2 days')").fetchone()
+    if backlog[0]:
+        out.append({"node_id": None, "check": "journal_backlog",
+                    "message": f"{backlog[0]} journal entries older than 2 days are uncompiled (oldest {backlog[1][:10]}): run the knowledge-compile skill"})
+    for i, n in rows.items():
         if n["parent_id"] is None and n["state"] in LIVE and n["kind"] in ROOT_KINDS:
             out.extend(plan_lint(con, i) or [])
     return out
@@ -465,6 +478,90 @@ def hygiene_sweep(con, days: int = 14, apply: bool = False, actor: str = "unknow
             node_edit(con, n["id"], {"state": "parked"}, actor=actor)
             log_change(con, actor, n["id"], f"#{n['id']} parked by hygiene sweep: {n['status']} with no decision in {days}d")
     return {"applied": apply, "days": days, "parked" if apply else "would_park": stale}
+
+
+# ---------------------------------------------------------------- journal + knowledge index
+# The capture/compile loop is adapted from coleam00/claude-memory-compiler (daily logs → compiled articles → an
+# index every session reads first), with the articles replaced by graph nodes and the daily files by `journal`.
+
+JOURNAL_SECTIONS = ("context", "decisions", "proposals", "lessons", "actions")
+KNOWLEDGE_KINDS = ("concept", "decision", "lesson", "qa")
+
+
+def journal_write(con, actor: str, body: str, session_id: str | None = None, agent: str | None = None,
+                  kind: str = "manual", tokens: int | None = None) -> dict:
+    """Append one entry. A flush of the same session within 60 s is a duplicate and is skipped."""
+    body = (body or "").strip()
+    if not body:
+        raise ValueError("empty journal entry")
+    if session_id:
+        recent = con.execute("SELECT id FROM journal WHERE session_id=? AND at > strftime('%Y-%m-%dT%H:%M:%fZ','now','-60 seconds')",
+                             (session_id,)).fetchone()
+        if recent:
+            return {"id": recent["id"], "duplicate": True}
+    jid = con.execute("INSERT INTO journal (at, session_id, actor, agent, kind, body, tokens) VALUES (?,?,?,?,?,?,?)",
+                      (now_iso(), session_id, actor or "unknown", agent, kind, body[:20000], tokens)).lastrowid
+    return {"id": jid, "duplicate": False}
+
+
+def journal_sections(slots: dict) -> str:
+    """The structured flush format: only the sections that have content."""
+    names = {"context": "Context", "decisions": "Decisions", "proposals": "Proposals", "lessons": "Lessons", "actions": "Action items"}
+    return "\n\n".join(f"**{names[k]}:**\n{str(slots[k]).strip()}" for k in JOURNAL_SECTIONS if (slots.get(k) or "").strip())
+
+
+def journal_pending(con, limit: int = 20) -> dict:
+    rows = [dict(r) for r in con.execute("SELECT id, at, actor, agent, kind, tokens, body FROM journal "
+                                         "WHERE compiled_at IS NULL ORDER BY id LIMIT ?", (int(limit),))]
+    total = con.execute("SELECT COUNT(*) FROM journal WHERE compiled_at IS NULL").fetchone()[0]
+    return {"pending_total": total, "entries": rows}
+
+
+def journal_mark_compiled(con, journal_ids: list, node_ids: list, actor: str = "unknown") -> dict:
+    ids = [int(i) for i in journal_ids]
+    if not ids:
+        raise ValueError("journal_ids required")
+    with tx(con):
+        marks = ",".join("?" * len(ids))
+        con.execute(f"UPDATE journal SET compiled_at=?, compiled_by=?, compiled_into=? WHERE id IN ({marks}) AND compiled_at IS NULL",
+                    (now_iso(), actor, json.dumps([int(n) for n in node_ids or []]), *ids))
+        log_change(con, actor, None, f"compiled journal {ids} into {sorted(set(int(n) for n in node_ids or []))}")
+    return journal_stats(con)
+
+
+def journal_stats(con) -> dict:
+    r = con.execute("SELECT COUNT(*) FILTER (WHERE compiled_at IS NULL) AS pending, "
+                    "MIN(at) FILTER (WHERE compiled_at IS NULL) AS oldest_pending, MAX(compiled_at) AS last_compiled "
+                    "FROM journal").fetchone()
+    return dict(r)
+
+
+def _gist(n: dict) -> str:
+    s = (n["attrs"].get("summary") or n.get("body") or "").strip().split("\n")[0]
+    s = re.split(r"(?<=[.!?])\s", s, maxsplit=1)[0]
+    return s[:140]
+
+
+def knowledge_index(con, max_chars: int = 20_000) -> str:
+    """The catalogue a session reads first: one line per live concept / decision / lesson / Q&A, grouped by root.
+    Open the full node with node_get or plan_render; this is only the map of what exists."""
+    marks = ",".join("?" * len(KNOWLEDGE_KINDS))
+    rows = con.execute(f"SELECT * FROM node WHERE kind IN ({marks}) AND state NOT IN ('done','dropped','parked') "
+                       f"AND json_extract(attrs,'$.superseded_by') IS NULL ORDER BY parent_id, id", KNOWLEDGE_KINDS).fetchall()
+    if not rows:
+        return "(the knowledge index is empty)"
+    lines, used = [f"# Knowledge index ({len(rows)} nodes; open any with node_get)"], 0
+    for r in rows:
+        n = node_dict(con, r)
+        pill = f" [{n['status']}]" if n.get("status") else ""
+        line = f"- #{n['id']} {n['kind']}{pill}: {n['title']}" + (f" — {_gist(n)}" if _gist(n) else "") + \
+               (f" (in #{n['parent_id']} {n['parent_title'][:30]})" if n["parent_id"] else "")
+        if used + len(line) > max_chars:
+            lines.append(f"(… {len(rows) - len(lines) + 1} more: use search)")
+            break
+        lines.append(line)
+        used += len(line)
+    return "\n".join(lines)
 
 
 MAP_HEADER = ("> **For AI agents:** this map is exported from the coordination store and is read-only here: edit the store, "

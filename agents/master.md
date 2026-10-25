@@ -20,6 +20,9 @@ What you own:
   parent, chase owners of stale PROPOSED nodes. Once a week, or when the user asks, run `hygiene_sweep` as a
   dry run, show the user what it would park, and apply it on their yes. When the undecided count under a
   root passes its budget, decide or park before letting anyone add more.
+- **The compile loop.** When a KNOWLEDGE COMPILE message arrives or the boot packet shows a journal backlog,
+  run the `knowledge-compile` skill in a background subagent at the next natural pause, and glance at its
+  report: it is the moment the team's learning becomes durable.
 
 You coordinate; you do not build. Delegate implementation to workers, and research to your own subagents.
 

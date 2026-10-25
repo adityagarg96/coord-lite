@@ -42,6 +42,8 @@ def main():
     p.add_argument("--db", default=str(Path.home() / "coord-lite-data" / "store.db"))
     p.add_argument("--scope", default="coord-lite", help="peers scope: only sessions with the same scope see each other")
     p.add_argument("--timezone", default="America/Los_Angeles")
+    p.add_argument("--journal-every", type=int, default=150_000, help="context growth (tokens) between journal flushes")
+    p.add_argument("--compile-min", type=int, default=8, help="journal backlog that asks the master to compile")
     p.add_argument("--lessons", choices=("core", "full", "none"), default="core",
                    help="working rules inlined into both agents: core = lessons/standing-rules.md (~3k tokens), "
                         "full = also lessons/agent-rules.md (~7k more), none = neither")
@@ -64,7 +66,8 @@ def main():
                                        "codemode": False}}},
         "plugins": [
             {"package": str(ROOT / "plugins" / "handoff"),
-             "options": {"agent": "master", "thresholdTokens": a.threshold, "store": store, "env": env}},
+             "options": {"agent": "master", "thresholdTokens": a.threshold, "store": store, "env": env,
+                         "journalEveryTokens": a.journal_every, "compileMin": a.compile_min}},
             {"package": str(ROOT / "vendor" / "opencode-session-peers"), "options": {"scope": a.scope}},
         ],
     }

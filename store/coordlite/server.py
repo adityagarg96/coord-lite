@@ -195,6 +195,37 @@ def receipt_add(actor: str, source: str, node_id: int, payload: dict | None = No
 
 
 @mcp.tool()
+def knowledge_index() -> str:
+    """The catalogue of what we know: one line per live concept, decision, lesson and Q&A, grouped by parent.
+    Read it before answering a question about the codebase or past decisions, then open nodes with node_get."""
+    return views.knowledge_index(con())
+
+
+@mcp.tool()
+def journal_write(actor: str, context: str, decisions: str = "", proposals: str = "", lessons: str = "", actions: str = "") -> str:
+    """Note what mattered in this stretch of work, for the knowledge-compile skill to fold into the graph later:
+    context (one line: what you were doing), decisions (with why), lessons (gotchas, what failed and why),
+    actions (follow-ups). decisions = only choices actually made or agreed; proposals = suggestions not yet agreed
+    (never promote one to the other). Skip routine tool calls and trivia. Use it at milestones; it does not touch the graph."""
+    return _j(views.journal_write, con(), actor,
+              views.journal_sections({"context": context, "decisions": decisions, "proposals": proposals,
+                                         "lessons": lessons, "actions": actions}),
+              kind="manual")
+
+
+@mcp.tool()
+def journal_pending(limit: int = 20) -> str:
+    """Uncompiled journal entries, oldest first, with the total backlog. Input to the knowledge-compile skill."""
+    return _j(views.journal_pending, con(), limit)
+
+
+@mcp.tool()
+def journal_mark_compiled(actor: str, journal_ids: list, node_ids: list) -> str:
+    """Mark journal entries as compiled, recording the nodes they went into (empty list if nothing was worth keeping)."""
+    return _j(views.journal_mark_compiled, con(), journal_ids, node_ids, actor)
+
+
+@mcp.tool()
 def store_lint(stale_days: int = 14, proposed_budget: int = 15) -> str:
     """Store-wide hygiene: every root's plan_lint plus orphan roots, PROPOSED/DRAFT nodes untouched for stale_days,
     undecided nodes without an owner, roots over the undecided budget, and likely-duplicate siblings. The master

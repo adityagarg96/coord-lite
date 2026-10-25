@@ -6,7 +6,7 @@ off to a fresh context when it fills, instead of compacting.
 
 | piece | what it is | where |
 |---|---|---|
-| store | nodes (single parent = containment), typed edges, append-only receipts, briefs, an attributed change log, FTS5 search. Exposed as the `store` MCP server (19 tools). | `store/` (Python, `uv`) |
+| store | nodes (single parent = containment), typed edges, append-only receipts, briefs, an attributed change log, FTS5 search. Exposed as the `store` MCP server (23 tools). | `store/` (Python, `uv`) |
 | handoff | at a context threshold the master writes a brief; the plugin then compacts the session and **replaces** OpenCode's summary with a boot packet from the store (brief + live plan + lint + recent writes). Same session id and title, so peers keep reaching it. | `plugins/handoff/` |
 | peers | `peers` tool: list / send / ask / reply / handover between live sessions on this machine. Third-party, MIT, pinned to the reviewed commit `112c25c`. | `vendor/opencode-session-peers` (submodule) |
 | agents | `master` and `worker` prompts, each carrying the shared laws. | `agents/`, `instructions/coordination.md` |
@@ -42,6 +42,29 @@ OPENCODE_CONFIG_DIR=~/coord-lite/config opencode
 
 `/compact` on the master is a manual handoff. Workers compact the normal way.
 
+## The knowledge loop
+
+Adapted from [coleam00/claude-memory-compiler](https://github.com/coleam00/claude-memory-compiler) (itself after
+Karpathy's LLM knowledge base): conversations are the source code, a compiler turns them into a knowledge base,
+an index is what every session reads first. Here the knowledge base is the graph instead of markdown files.
+
+| their piece | here |
+|---|---|
+| `daily/` logs, append-only | the `journal` table: append-only bodies, kept out of the graph |
+| SessionEnd / PreCompact hooks → background flush | every ~150k tokens of context growth the plugin asks the session's own model (`session.generate`, which adds no turn) for an entry in five sections: Context / Decisions / **Proposals** / Lessons / Action items. Before any compaction, a raw excerpt of recent turns is saved if work since the last flush would otherwise be lost. `journal_write` lets a session note a milestone itself. |
+| `compile.py` (daily → concept/connection articles), auto after 6 PM | the `knowledge-compile` skill folds the journal into concept / decision / lesson nodes and edges, under the upkeep rules. The plugin asks the master to run it (in a background subagent) when 8 entries are pending, or once a day after 18:00. |
+| `index.md` injected at SessionStart | `knowledge_index`: one line per live concept / decision / lesson / Q&A, appended to every master and worker system prompt (snapshotted per session, refreshed after compaction), and in every boot packet |
+| `query.py --file-back` | the `knowledge-query` skill: answers with `#id` citations, files reusable answers as `qa` nodes linked to what they cite |
+| `log.md`, `lint.py` | the `change` table; `store_lint` (adds `journal_backlog` and `concept_sparse` to the checks below) |
+
+No session ever re-reads a long transcript: a 900k-token session leaves ~6 short entries as it goes, and compiling
+20 entries is ~10k tokens in a fresh subagent. Back-filling an old transcript that has no journal is a map step
+over ~100k-token windows into the journal, then the same compile.
+
+Found live: a model will promote a suggestion to a decision on the way through (a worker's "I'd opt for X"
+reached a concept body as "X is used"). The flush therefore separates **Decisions** (made or agreed, by whom) from
+**Proposals**, and the compile skill turns proposals into PROPOSED decision nodes with an owner, never into facts.
+
 ## Keeping the graph clean
 
 The shared instructions carry seven upkeep rules (search before create, edit beats add, every node has a parent,
@@ -66,8 +89,8 @@ receipt keyed `pr:<repo>#<n>@<head sha>`, so re-ingesting a PR only processes co
 ## Tests
 
 ```sh
-cd store && uv run pytest -q            # 18 tests, tmp SQLite only (incl. 5 concurrent writers, a real stdio MCP round trip)
-cd plugins/handoff && node --test logic.test.ts   # 10 tests, the handoff state machine against a fake host
+cd store && uv run pytest -q            # 23 tests, tmp SQLite only (incl. 5 concurrent writers, a real stdio MCP round trip)
+cd plugins/handoff && node --test logic.test.ts journal.test.ts   # 17 tests, handoff + journal against a fake host
 ```
 
 ## Verified live (OpenCode 2.0.29, free `opencode/big-pickle`, isolated XDG dirs)

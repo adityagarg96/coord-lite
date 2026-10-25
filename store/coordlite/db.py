@@ -19,7 +19,7 @@ from . import timing
 
 DB_PATH = Path(os.environ.get("COORD_DB", Path.home() / "coord-lite-data" / "store.db")).expanduser()
 
-KINDS = {"goal", "project", "requirement", "concept", "idea", "task", "plan", "decision", "checkpoint", "lesson", "floor",
+KINDS = {"goal", "project", "requirement", "concept", "qa", "idea", "task", "plan", "decision", "checkpoint", "lesson", "floor",
          "note", "mission", "capital", "code", "capture",
          "segment", "segment_instance", "day_template", "day_instance", "e3d"}
 STATES = {"raw", "seed", "active", "parked", "done", "dropped"}
@@ -108,6 +108,27 @@ CREATE TABLE IF NOT EXISTS change(
   what TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS change_at ON change(at);
+
+-- The raw material (a session's own account of what mattered), kept OUT of the graph: append-only bodies,
+-- compiled into nodes later by the knowledge-compile skill. compiled_at/compiled_into are the only mutable columns.
+CREATE TABLE IF NOT EXISTS journal(
+  id INTEGER PRIMARY KEY,
+  at TEXT NOT NULL,
+  session_id TEXT,
+  actor TEXT NOT NULL,
+  agent TEXT,
+  kind TEXT NOT NULL CHECK (kind IN ('flush','precompact','manual')),
+  body TEXT NOT NULL,
+  tokens INTEGER,
+  compiled_at TEXT,
+  compiled_by TEXT,
+  compiled_into TEXT NOT NULL DEFAULT '[]'
+);
+CREATE INDEX IF NOT EXISTS journal_pending ON journal(compiled_at, id);
+CREATE TRIGGER IF NOT EXISTS journal_body_immutable BEFORE UPDATE OF at, session_id, actor, kind, body ON journal
+  BEGIN SELECT RAISE(ABORT, 'journal entries are append-only'); END;
+CREATE TRIGGER IF NOT EXISTS journal_no_delete BEFORE DELETE ON journal
+  BEGIN SELECT RAISE(ABORT, 'journal entries are append-only'); END;
 
 CREATE VIRTUAL TABLE IF NOT EXISTS node_fts USING fts5(title, body, content='node', content_rowid='id');
 CREATE TRIGGER IF NOT EXISTS node_fts_ai AFTER INSERT ON node BEGIN
