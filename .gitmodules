@@ -1,0 +1,3 @@
+[submodule "vendor/opencode-session-peers"]
+	path = vendor/opencode-session-peers
+	url = https://github.com/devcxl/opencode-session-peers

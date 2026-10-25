@@ -1,0 +1,22 @@
+[project]
+name = "coordlite"
+version = "0.1.0"
+description = "A shared SQLite plan store (nodes, typed edges, receipts, briefs) exposed to OpenCode sessions over MCP."
+requires-python = ">=3.11"
+dependencies = ["mcp>=2.2,<3"]
+
+[project.scripts]
+coordlite = "coordlite.__main__:main"
+
+[dependency-groups]
+dev = ["pytest>=8"]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["coordlite"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
