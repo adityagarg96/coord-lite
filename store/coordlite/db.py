@@ -19,7 +19,7 @@ from . import timing
 
 DB_PATH = Path(os.environ.get("COORD_DB", Path.home() / "coord-lite-data" / "store.db")).expanduser()
 
-KINDS = {"goal", "project", "requirement", "concept", "qa", "idea", "task", "plan", "decision", "checkpoint", "lesson", "floor",
+KINDS = {"goal", "project", "requirement", "concept", "invariant", "qa", "idea", "task", "plan", "decision", "checkpoint", "lesson", "floor",
          "note", "mission", "capital", "code", "capture",
          "segment", "segment_instance", "day_template", "day_instance", "e3d"}
 STATES = {"raw", "seed", "active", "parked", "done", "dropped"}
@@ -158,7 +158,8 @@ def parse_iso(s: str | None) -> datetime | None:
 # an OLDER coordlite (a new node kind, a changed table). A binary refuses a store newer than it understands, with
 # a clear message, instead of failing on a CHECK constraint or, worse, narrowing a CHECK list a newer binary widened.
 #   1  additive CHECK migration + this stamp (every binary from here on is safe to mix with newer ones)
-SCHEMA_VERSION = 1
+#   2  node kind 'invariant' (a version-0 binary would fail on such a row; ship 1 everywhere first)
+SCHEMA_VERSION = 2
 
 
 class StoreVersionError(RuntimeError):

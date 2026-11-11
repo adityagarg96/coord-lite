@@ -28,7 +28,11 @@ beats add, supersede rather than contradict.
    - A genuinely new subsystem, interface or data flow: one new `concept` under the right parent, linked to at
      least two existing nodes with `#id` references or edges.
    - A decision made in the PR or its review: a `decision` node under the concept it governs, status CONFIRMED
-     if merged, with who decided and the PR link in its body.
+     if merged, with who decided and the PR link in its body, and `attrs.decided_by`, `attrs.decided_at` (merge
+     date), `attrs.decided_in` (the PR or review-comment URL).
+   - A law the PR introduces or relies on (a new constraint, uniqueness, an ordering guarantee, an idempotence
+     key): an `invariant` node under its concept with `attrs.enforced_by`, `attrs.breaks_if` and
+     `attrs.evidence` (`path:line@<head sha>`).
    - A gotcha or failed approach the review surfaced: a `lesson` node under the concept.
    - A requirement this PR advances: add the receipt (step 5) and tell its owner with `peers send`. Mark it
      `done` only if its exit test now passes, and say how you checked.

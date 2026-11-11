@@ -10,6 +10,20 @@ EDITABLE = ("title", "body", "summary", "state", "why_dropped", "parent_id", "st
 STATUSES = {"DEFINED", "DEEP_DIVE", "PUNT", "PROPOSED", "RATIFIED", "CONFIRMED", "DRAFT", "BLOCKED", None}
 STATES_SETTABLE = {"raw", "seed", "active", "parked", "done", "dropped"}
 
+# An invariant is a law of the system: its body states it, and attrs say how it holds.
+#   enforced_by  db (a constraint/trigger) | code (one code path guards it) | convention (people and prompts)
+#                | none (believed true, nothing guards it). Convention and none are where systems break.
+#   breaks_if    what would violate it, and what goes wrong then
+#   evidence     list of `path:line@sha` or `#id` that establish it
+ENFORCEMENT = ("db", "code", "convention", "none")
+INVARIANT_ATTRS = ("enforced_by", "breaks_if", "evidence")
+
+
+def _check_kind_attrs(kind: str, attrs: dict | None) -> None:
+    e = (attrs or {}).get("enforced_by")
+    if kind == "invariant" and e is not None and e not in ENFORCEMENT:
+        raise ValueError(f"attrs.enforced_by must be one of {ENFORCEMENT}")
+
 
 def _fill_from_parent(con, parent_id):
     p = get_node(con, int(parent_id)) if parent_id else None
@@ -81,6 +95,7 @@ def node_create(con, kind: str, title: str, body: str | None = None, parent_id=N
         raise ValueError(f"status must be one of {sorted(s for s in STATUSES if s)}")
     if state is not None and state not in STATES_SETTABLE:
         raise ValueError(f"state must be one of {sorted(STATES_SETTABLE)}")
+    _check_kind_attrs(kind, attrs)
     with tx(con):
         parent, capital, mission = _fill_from_parent(con, parent_id)
         if parent_id and parent is None:
@@ -116,6 +131,7 @@ def node_edit(con, node_id: int, fields: dict, actor: str = "unknown", attrs: di
         n = get_node(con, node_id)
         if n is None:
             raise KeyError(node_id)
+        _check_kind_attrs(n["kind"], attrs)
         changes = {k: v for k, v in fields.items() if v != n.get(k)}
         attr_changes = {k: v for k, v in (attrs or {}).items() if n["attrs"].get(k) != v}
         summary = changes.pop("summary", None)
@@ -323,6 +339,15 @@ def plan_render(con, root_id: int, depth: int = 99) -> str | None:
                 lines.append(f"Exit test: {a['exit_test']}")
             if a.get("owner"):
                 lines.append(f"Owner: {a['owner']}")
+            if n["kind"] == "invariant":
+                lines.append(f"Enforced by: {a.get('enforced_by') or '(unstated)'}" + (f" · Breaks if: {a['breaks_if']}" if a.get("breaks_if") else ""))
+                if a.get("evidence"):
+                    ev = a["evidence"] if isinstance(a["evidence"], list) else [a["evidence"]]
+                    lines.append("Evidence: " + ", ".join(str(x) for x in ev))
+            if n["kind"] == "decision" and (a.get("decided_by") or a.get("decided_in")):
+                lines.append("Decided" + (f" by {a['decided_by']}" if a.get("decided_by") else "")
+                             + (f" on {str(a['decided_at'])[:10]}" if a.get("decided_at") else "")
+                             + (f", in {a['decided_in']}" if a.get("decided_in") else ""))
             if n.get("due_at"):
                 t = n["time"]
                 lines.append(f"Due: {n['due_at'][:10]}" + (" (OVERDUE)" if t.get("overdue") else f" ({t.get('days_to_due')}d)"))
@@ -495,6 +520,13 @@ def store_lint(con, stale_days: int = 14, proposed_budget: int = 15, include_imp
         if n["state"] not in LIVE or i in hist:
             continue
         a = json.loads(n["attrs"] or "{}")
+        if n["kind"] == "invariant":
+            gaps = [k for k in INVARIANT_ATTRS if not a.get(k)]
+            if a.get("enforced_by") and a["enforced_by"] not in ENFORCEMENT:
+                gaps.append(f"enforced_by must be one of {'/'.join(ENFORCEMENT)}")
+            if gaps:
+                out.append({"node_id": i, "check": "invariant_unsupported",
+                            "message": f"invariant #{i} '{n['title'][:40]}' lacks {', '.join(gaps)}: an unsupported law is a rumour"})
         if a.get("to_verify"):
             out.append({"node_id": i, "check": "unverified_claims",
                         "message": f"#{i} carries {len(a['to_verify'])} unverified claim(s) from the journal: check them against the code, then fold in or drop"})
@@ -536,7 +568,7 @@ def hygiene_sweep(con, days: int = 14, apply: bool = False, actor: str = "unknow
 # index every session reads first), with the articles replaced by graph nodes and the daily files by `journal`.
 
 JOURNAL_SECTIONS = ("context", "decisions", "proposals", "lessons", "actions")
-KNOWLEDGE_KINDS = ("concept", "decision", "lesson", "qa")
+KNOWLEDGE_KINDS = ("concept", "invariant", "decision", "lesson", "qa")
 
 
 def journal_write(con, actor: str, body: str, session_id: str | None = None, agent: str | None = None,
@@ -607,6 +639,8 @@ def knowledge_index(con, max_chars: int = 16_000) -> str:
 
     def line(n, indent=""):
         pill = f" [{n['status']}]" if n.get("status") else ""
+        if n["kind"] == "invariant":
+            pill = f" [{n['attrs'].get('enforced_by') or 'unstated'}]"
         flag = " (unverified claims)" if n["attrs"].get("to_verify") else ""
         g = _gist(n)
         return f"{indent}- #{n['id']} {n['kind']}{pill}: {n['title'][:90]}" + (f" — {g}" if g else "") + flag
@@ -637,8 +671,13 @@ def knowledge_index(con, max_chars: int = 16_000) -> str:
     props = [(line(n), n["id"]) for n in sorted(rows.values(), key=lambda n: n["updated_at"], reverse=True)
              if n.get("status") in UNDECIDED and n["state"] in LIVE and n["id"] not in hist and n["kind"] != "requirement"]
     out = [f"# Knowledge index ({len(rows)} live nodes; this is the top of each tree, open anything with node_get)"]
-    out += section("Trees and their overview", tree_items, int(max_chars * 0.35), "plan_render the root")
-    out += section("Requirements", reqs, int(max_chars * 0.30), "plan_render the plan root")
+    out += section("Trees and their overview", tree_items, int(max_chars * 0.30), "plan_render the root")
+    fragile = {e: k for k, e in enumerate(("none", "convention", "code", "db"))}
+    laws = [(line(n), n["id"]) for n in sorted(rows.values(), key=lambda n: (fragile.get(n["attrs"].get("enforced_by"), -1), n["id"]))
+            if n["kind"] == "invariant" and n["id"] not in shown and n["id"] not in hist]
+    out += section("Invariants (the system's laws; [how each is enforced], least guarded first)", laws, int(max_chars * 0.10),
+                   "search kind=invariant")
+    out += section("Requirements", reqs, int(max_chars * 0.25), "plan_render the plan root")
     out += section("Open proposals", props, int(max_chars * 0.15), "search, or store_lint")
     recent = [(line(n), n["id"]) for n in sorted(rows.values(), key=lambda n: max(n["updated_at"] or "", n["touched_at"] or ""), reverse=True)
               if n["kind"] in KNOWLEDGE_KINDS and n["id"] not in shown and n["id"] not in hist]

@@ -367,3 +367,49 @@ def test_attrs_merge_on_edit_and_unverified_claims(con):
     assert "to_verify" not in n["attrs"] and n["attrs"]["history"][-1]["before"]["attrs.to_verify"] == claim
     with pytest.raises(ValueError):
         views.node_edit(con, c["id"], {}, actor="master", attrs={"history": []})
+
+
+# ---------------------------------------------------------------- invariants and decision provenance
+
+def test_an_invariant_is_a_law_with_its_enforcement_and_evidence(con):
+    root = mk(con, "Codebase map", kind="concept", body="the map")
+    store = mk(con, "Store", kind="concept", parent=root["id"], body="the SQLite graph every session shares, see #1")
+    inv = mk(con, "Receipts are append-only", kind="invariant", parent=store["id"],
+             body="No receipt row is ever updated or deleted.",
+             attrs={"enforced_by": "db", "breaks_if": "a code path updates a receipt: the trigger aborts it",
+                    "evidence": ["store/coordlite/db.py:84@baa8d8c"]})
+    doc = views.plan_render(con, root["id"])
+    assert "Enforced by: db · Breaks if: a code path updates a receipt" in doc
+    assert "Evidence: store/coordlite/db.py:84@baa8d8c" in doc
+    assert not [f for f in views.store_lint(con) if f["check"] == "invariant_unsupported"]
+    with pytest.raises(ValueError, match="enforced_by"):
+        mk(con, "Bad", kind="invariant", parent=store["id"], attrs={"enforced_by": "vibes"})
+    with pytest.raises(ValueError, match="enforced_by"):
+        views.node_edit(con, inv["id"], {}, actor="w1", attrs={"enforced_by": "hope"})
+
+
+def test_an_unsupported_invariant_is_linted(con):
+    root = mk(con, "Map", kind="concept", body="the map")
+    inv = mk(con, "Every job is idempotent", kind="invariant", parent=root["id"], body="Rerunning a job changes nothing.",
+             attrs={"enforced_by": "convention"})
+    f = [f for f in views.store_lint(con) if f["check"] == "invariant_unsupported"]
+    assert [x["node_id"] for x in f] == [inv["id"]] and "breaks_if" in f[0]["message"] and "evidence" in f[0]["message"]
+
+
+def test_the_index_lists_invariants_least_guarded_first(con):
+    root = mk(con, "Map", kind="concept", body="the map")
+    sub = mk(con, "Ingest", kind="concept", parent=root["id"], body="pulls records in")
+    ok = {"breaks_if": "x", "evidence": ["a.py:1@abc"]}
+    mk(con, "Guarded by a constraint", kind="invariant", parent=sub["id"], body="law one", attrs={**ok, "enforced_by": "db"})
+    mk(con, "Held by habit", kind="invariant", parent=sub["id"], body="law two", attrs={**ok, "enforced_by": "convention"})
+    idx = views.knowledge_index(con)
+    assert "## Invariants" in idx
+    assert idx.index("invariant [convention]: Held by habit") < idx.index("invariant [db]: Guarded by a constraint")
+
+
+def test_a_decision_renders_who_decided_it_when_and_where(con):
+    root = mk(con, "Plan", kind="plan", body="the plan")
+    mk(con, "Keep learner data in the store", kind="decision", parent=root["id"], status="CONFIRMED",
+       body="Parallel to the journal: tables, not nodes.",
+       attrs={"decided_by": "maintainer", "decided_at": "2026-11-10T20:00:00Z", "decided_in": "session 3f2a T41"})
+    assert "Decided by maintainer on 2026-11-10, in session 3f2a T41" in views.plan_render(con, root["id"])

@@ -41,8 +41,13 @@ to match the journal; if the journal shows one is no longer true, supersede it w
      owner of the area (or `master`) instead of guessing.
    - **Create** only for something genuinely new: a `concept` (a subsystem, interface, data flow, convention)
      under the right concept parent, linked to at least two nodes; a `decision` (status CONFIRMED when the entry
-     says it was decided, with who and why; PROPOSED with an owner for anything under **Proposals:**); a `lesson` (what was tried, why it failed, what to do instead)
-     under the concept it is about.
+     says it was decided, with who and why; PROPOSED with an owner for anything under **Proposals:**), always with
+     `attrs.decided_by`, `attrs.decided_at` and `attrs.decided_in` (the entry's session and the journal id, e.g.
+     `journal:<id>`); a `lesson` (what was tried, why it failed, what to do instead) under the concept it is about;
+     an `invariant` when an entry states or reveals a law the system relies on (something must always or never
+     hold): the law in the body, `attrs.enforced_by` (db | code | convention | none), `attrs.breaks_if`, and
+     `attrs.evidence`. The code rule applies: evidence is a `path:line@sha` you checked, or a `#id`; a law you could
+     not check goes in `to_verify` on its concept instead.
    - **Connect**: when an entry reveals a non-obvious relationship between two existing concepts, add an edge
      (`relates_to`, `informs`, `blocks`, `derived_from`) with a `note` saying what the link is. Make it a new
      concept only if the insight needs more than a sentence.

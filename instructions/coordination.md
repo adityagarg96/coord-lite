@@ -71,6 +71,14 @@ What sessions learn flows into the graph in three steps, so nobody has to re-rea
   subsystems); deeper nodes are details. A concept body references others inline as `#id`, and every concept
   links to at least two others (the lint checks). Requirements point at the concepts they touch
   (`relates_to`). `map_export` renders it as a plain mind-map file for people without the store.
+- **Invariants** are the laws of the system ("a reservation has one canonical row", "re-ingesting the same input
+  changes nothing"): an `invariant` node under the concept it governs, the law in its body, with
+  `attrs.enforced_by` (`db` a constraint or trigger, `code` one guarded code path, `convention` people and prompts,
+  `none` believed but unguarded), `attrs.breaks_if` (what would violate it and what goes wrong) and
+  `attrs.evidence` (`path:line@sha` or `#id`). Record one whenever you learn a law the next session must not
+  break; say honestly how it is enforced, since `convention` and `none` are where systems break.
+- **Decisions** say who made them, when and where: `attrs.decided_by`, `attrs.decided_at`, `attrs.decided_in`
+  (a session and turn, a PR, a message link, a meeting). Real decisions mostly live in conversations, not specs.
 
 ## Peers
 

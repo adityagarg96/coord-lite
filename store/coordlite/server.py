@@ -137,10 +137,14 @@ def brief_read(scope: str = "master") -> str:
 def node_create(actor: str, kind: str, title: str, body: str = "", parent_id: int | None = None,
                 status: str | None = None, state: str | None = None, attrs: dict | None = None,
                 due_at: str | None = None) -> str:
-    """Create ONE node. kind: requirement|concept|project|plan|task|decision|checkpoint|lesson|note|idea|goal (concept = a knowledge-map node: architecture, data flow, a subsystem; link it with #id refs in the body). parent_id is its
+    """Create ONE node. kind: requirement|concept|invariant|project|plan|task|decision|checkpoint|lesson|note|idea|goal (concept = a knowledge-map node: architecture, data flow, a subsystem; link it with #id refs in the body). parent_id is its
     single containment parent (omit for a root). status: DEFINED|DEEP_DIVE|PUNT|PROPOSED|RATIFIED|CONFIRMED|DRAFT|BLOCKED
     or null. state defaults to active (seed for idea/task). attrs is free JSON; attrs.exit_test (how we know it is
-    done) and attrs.owner (which session) are read by render and lint. For a whole branch use subtree_create."""
+    done) and attrs.owner (which session) are read by render and lint. An invariant (a law of the system, stated in
+    the body, placed under the concept it governs) carries attrs.enforced_by (db|code|convention|none),
+    attrs.breaks_if and attrs.evidence (list of path:line@sha or #id). A decision carries attrs.decided_by,
+    attrs.decided_at and attrs.decided_in (where it was made: a session and turn, a PR, a message link, a meeting).
+    For a whole branch use subtree_create."""
     return _j(views.node_create, con(), kind, title, body or None, parent_id, status, attrs, state, actor,
               time=_clean({"due_at": due_at}))
 
