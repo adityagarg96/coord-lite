@@ -90,7 +90,11 @@ cause, keys are written before the answer and grounded in evidence) and from the
 `python -m coordlite storyboard --repo <checkout> --out board.html` is the **system storyboard**: components as lanes,
 tables as a fixed column, and **flows** (concepts with `attrs.steps`, written by the `trace-flow` skill) you step
 through with the arrow keys, each step lighting its lane, its `path:line@sha` (re-checked against the checkout) and
-the columns it reads and writes, with invariants and decisions pinned where they bite. "Quiz me on this flow" copies
+the columns it reads and writes, with invariants and decisions pinned where they bite. It holds up on a big system:
+`--repo` may be a parent directory of several checkouts (a step then says `<checkout>/path:line@sha`), flows are
+grouped by domain (their parent concept) in collapsible headings, and the table column puts the current flow's tables
+first and folds the rest into groups by schema prefix (`core.`, `auth.`) or parent, behind a filter box. The header
+counts the pointers checked and broken, and warns past nine lanes. "Quiz me on this flow" copies
 `/quiz on #ids`. `python -m coordlite learnmap --out map.html` is the fog-of-war tree of every concept with your
 state on it. The grammar follows Colin Ware's rules (Visual Thinking for Design): stable layout, luminance for state,
 amber the only colour.

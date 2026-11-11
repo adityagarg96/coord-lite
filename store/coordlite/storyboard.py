@@ -10,9 +10,17 @@ It reads three kinds of concept nodes (no schema change; they are plain concepts
 Invariants and decisions pin to the step where they bite; an invariant also shows on the entity it guards (its
 parent, or a relates_to edge). With --repo every step's `at` is re-checked (file and line exist at that sha, or at
 the working tree when no sha), and a broken pointer is flagged on the page: evidence that rots should show.
+--repo may also be a parent directory holding several checkouts: a step then names its checkout first,
+`<checkout-dir>/<path>:<line>@sha`, and is checked with `git -C <parent>/<checkout-dir> show <sha>:<path>`.
 Layout is stable (lanes and tables never move); a flow lights a path across it. Amber is the only colour and marks
 the current step. The human's understanding is an overlay, off by default. Node text is rendered with textContent.
+
+At scale: flows are grouped by domain (the flow's parent concept) in a collapsible rail. Tables are grouped by the
+schema prefix of a dotted name (`core.reservations` -> core) or else by the table node's parent; the tables the
+current flow touches are listed first and open, the rest stay in collapsed groups behind a filter box. Group and
+table order is fixed for the whole page, so nothing reorders as you step. More than MAX_LANES lanes is reported.
 """
+import functools
 import json
 import subprocess
 from datetime import datetime, timezone
@@ -20,6 +28,26 @@ from pathlib import Path
 
 from . import learn
 from .db import now_iso
+
+MAX_LANES = 9          # past this the stage stops being readable: merge components instead
+OPEN_ALL_TABLES = 24   # at or below this many tables every group starts open
+
+
+@functools.lru_cache(maxsize=4096)
+def _git_show(repo: str, sha: str, path: str) -> str | None:
+    try:
+        r = subprocess.run(["git", "-C", repo, "show", f"{sha}:{path}"], capture_output=True, text=True, timeout=10)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return r.stdout if r.returncode == 0 else None
+
+
+def _resolve(repo: Path, path: str) -> tuple[Path, str]:
+    """In a parent of several checkouts a pointer names its checkout first: `<checkout-dir>/<path>`."""
+    head, sep, rest = path.partition("/")
+    if sep and rest and (repo / head / ".git").exists():
+        return repo / head, rest
+    return repo, path
 
 
 def _line_ok(repo: Path, at: str) -> bool | None:
@@ -32,17 +60,23 @@ def _line_ok(repo: Path, at: str) -> bool | None:
         last = max(int(x) for x in lines.split("-") if x.strip())
     except ValueError:
         return None
-    try:
-        if sha:
-            text = subprocess.run(["git", "-C", str(repo), "show", f"{sha}:{path}"], capture_output=True, text=True,
-                                  timeout=10).stdout
-            if not text:
-                return False
-        else:
-            text = (repo / path).read_text()
-    except (OSError, subprocess.SubprocessError):
-        return False
+    checkout, path = _resolve(repo, path)
+    if sha:
+        text = _git_show(str(checkout), sha, path)
+        if not text:
+            return False
+    else:
+        try:
+            text = (checkout / path).read_text()
+        except OSError:
+            return False
     return last <= len(text.splitlines())
+
+
+def _table_of(ref: str, tables: list[str]) -> str | None:
+    """The table a `table` / `table.column` ref names: the longest known table it equals or starts with."""
+    hits = [t for t in tables if ref == t or ref.startswith(t + ".")]
+    return max(hits, key=len) if hits else None
 
 
 def board_data(con, repo: str | None = None, root: int | None = None) -> dict:
@@ -82,23 +116,53 @@ def board_data(con, repo: str | None = None, root: int | None = None) -> dict:
     entities = [n for n in rows.values() if n["attrs"].get("entity")]
     pins = [n for n in rows.values() if n["kind"] == "invariant"]
     repo_path = Path(repo).expanduser() if repo else None
-    flows, broken = [], 0
-    for n in sorted((n for n in rows.values() if isinstance(n["attrs"].get("steps"), list)), key=lambda n: n["id"]):
-        steps = []
+
+    def group(n):
+        t = n["attrs"]["entity"]
+        if "." in t:
+            return t.split(".", 1)[0]
+        p = rows.get(n["parent_id"])
+        return p["title"] if p else ""
+    entities.sort(key=lambda n: (group(n), n["id"]))
+    names = [n["attrs"]["entity"] for n in entities]
+    by_name = {n["attrs"]["entity"]: n["id"] for n in entities}
+    lane_ids = {n["id"] for n in lanes}
+    flow_nodes = [n for n in rows.values() if isinstance(n["attrs"].get("steps"), list)]
+    domain_ids = sorted({n["parent_id"] for n in flow_nodes if n["parent_id"] in rows})
+    order = {d: i for i, d in enumerate(domain_ids)}
+    flows, broken, checked, warnings = [], 0, 0, []
+    for n in sorted(flow_nodes, key=lambda n: (order.get(n["parent_id"], len(order)), n["id"])):
+        steps, touched, unknown = [], set(), []
         for s in n["attrs"]["steps"]:
             ok = _line_ok(repo_path, s.get("at", ""))
             broken += ok is False
+            checked += ok is not None
+            for ref in (s.get("reads") or []) + (s.get("writes") or []):
+                t = _table_of(ref, names)
+                if t:
+                    touched.add(by_name[t])
+                elif ref not in unknown:
+                    unknown.append(ref)
+            if s.get("lane") not in lane_ids:
+                warnings.append(f"#{n['id']} '{n['title']}' has a step on no known lane ({s.get('lane')})")
             steps.append({**s, "ok": ok, "pin": card(s.get("pin")) if s.get("pin") else None})
-        flows.append({**card(n["id"]), "trigger": n["attrs"].get("trigger", ""), "steps": steps})
+        flows.append({**card(n["id"]), "trigger": n["attrs"].get("trigger", ""), "steps": steps,
+                      "domain": n["parent_id"] if n["parent_id"] in order else None,
+                      "tables": [e["id"] for e in entities if e["id"] in touched], "unknown": unknown})
+    if len(lanes) > MAX_LANES:
+        warnings.insert(0, f"{len(lanes)} lanes: past {MAX_LANES} the stage stops being readable, merge components")
     return {
         "generated": now_iso()[:16].replace("T", " "), "checked": bool(repo_path), "broken": broken,
+        "pointers": checked, "steps": sum(len(f["steps"]) for f in flows), "warnings": warnings, "open_all": len(entities) <= OPEN_ALL_TABLES,
+        "domains": [{**card(d), "flows": sum(f["domain"] == d for f in flows)} for d in domain_ids],
         "lanes": [{**card(n["id"]), "invariants": [card(p["id"]) for p in pins
                                                     if p["parent_id"] == n["id"] or n["id"] in guards.get(p["id"], ())]}
                   for n in lanes],
         "entities": [{**card(n["id"]), "table": n["attrs"]["entity"], "columns": n["attrs"].get("columns", []),
+                      "group": group(n),
                       "invariants": [card(p["id"]) for p in pins
                                      if p["parent_id"] == n["id"] or n["id"] in guards.get(p["id"], ())]}
-                     for n in sorted(entities, key=lambda n: n["id"])],
+                     for n in entities],
         "flows": flows,
     }
 
@@ -120,7 +184,12 @@ TEMPLATE = r"""<!doctype html>
 header{display:flex;flex-wrap:wrap;gap:8px 18px;align-items:center;padding:10px 16px;border-bottom:1px solid var(--line)}
 h1{font-size:16px;margin:0}.muted{color:var(--muted)}button{font:inherit;background:var(--panel);color:var(--ink);border:1px solid var(--line);border-radius:6px;padding:4px 10px;cursor:pointer}
 button:hover{border-color:var(--ink)}label{color:var(--muted);cursor:pointer}
-.grid{display:grid;grid-template-columns:230px minmax(0,1fr) 260px;min-height:calc(100vh - 50px)}
+.grid{display:grid;grid-template-columns:240px minmax(0,1fr) 290px;min-height:calc(100vh - 50px)}
+.dh{display:flex;justify-content:space-between;gap:8px;font-size:11.5px;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);
+ padding:6px 4px;margin:8px 0 4px;border-bottom:1px solid var(--line);cursor:pointer;user-select:none}.dh:hover{color:var(--ink)}
+#tq{width:100%;font:inherit;padding:4px 8px;border:1px solid var(--line);border-radius:6px;background:var(--panel);color:var(--ink);margin-bottom:6px}
+aside .row{font-family:ui-monospace,Menlo,monospace;font-size:12px;padding:2px 4px;cursor:pointer;color:var(--muted);display:flex;justify-content:space-between}
+aside .row:hover{color:var(--ink)}aside .x{float:right;color:var(--faint);cursor:pointer;font-size:12px}.unk{font-size:12px;color:var(--muted);margin:-4px 0 10px}
 @media (max-width:980px){.grid{grid-template-columns:1fr}}
 nav{border-right:1px solid var(--line);padding:12px}nav .f{padding:8px 10px;border-radius:6px;cursor:pointer;margin-bottom:4px}
 nav .f:hover{background:var(--band)}nav .f.on{background:var(--panel);outline:1.5px solid var(--ink)}nav .f small{display:block;color:var(--muted)}
@@ -143,21 +212,28 @@ aside .t.lit{border-color:var(--ink)}aside .inv{font-size:12px;color:var(--muted
 <span class="muted">← → step · ↑ ↓ flow · space play</span></header>
 <div class="grid"><nav id="flows"></nav>
 <div class="stage"><div class="trig" id="trig"></div><svg id="board"></svg><div class="detail" id="detail"></div></div>
-<aside id="tables"></aside></div>
+<aside><input id="tq" type="search" placeholder="Filter tables or columns" aria-label="Filter tables or columns"><div id="tables"></div></aside></div>
 <script>
-const D=/*DATA*/null;let fi=0,si=0,showMind=false,timer=null;
+const D=/*DATA*/null;let fi=0,si=0,showMind=false,timer=null,q="";
+const shutD=new Set(),flipG=new Set(),flipT=new Set();  // user toggles: closed domains, groups/tables flipped from their default
+const GROUPS=[];for(const e of D.entities){let g=GROUPS[GROUPS.length-1];if(!g||g.name!==e.group)GROUPS.push(g={name:e.group,all:[]});g.all.push(e)}
 const $=id=>document.getElementById(id);const el=(t,c,txt)=>{const e=document.createElement(t);if(c)e.className=c;if(txt!=null)e.textContent=txt;return e};
 const S=(t,a,p)=>{const e=document.createElementNS("http://www.w3.org/2000/svg",t);for(const k in a)e.setAttribute(k,a[k]);p&&p.appendChild(e);return e};
 const V=k=>getComputedStyle(document.documentElement).getPropertyValue(k).trim();
 const laneIx=new Map(D.lanes.map((l,i)=>[l.id,i]));
 function mindClass(n){return showMind&&n?" m-"+n.mind:""}
 function nav(){const n=$("flows");n.textContent="";if(!D.flows.length){n.append(el("p","muted","No flows yet. A flow is a concept with attrs.steps; the trace-flow skill writes them."));return}
- D.flows.forEach((f,i)=>{const d=el("div","f"+(i===fi?" on":"")+mindClass(f),f.title);d.append(el("small",null,f.steps.length+" steps"+(showMind?" · "+f.mind:"")));
-  d.onclick=()=>{fi=i;si=0;render()};n.append(d)})}
-function board(){const svg=$("board");svg.textContent="";const f=D.flows[fi];const laneH=58,left=170,stepW=118;
+ for(const dm of [...D.domains,{id:null,title:"Other"}]){const idx=D.flows.map((f,i)=>i).filter(i=>D.flows[i].domain===dm.id);if(!idx.length)continue;
+  const shut=shutD.has(dm.id);const h=el("div","dh"+(dm.mind?mindClass(dm):""));h.title=dm.body||"";
+  h.append(el("span",null,(shut?"▸ ":"▾ ")+dm.title),el("span",null,String(idx.length)));
+  h.onclick=()=>{shut?shutD.delete(dm.id):shutD.add(dm.id);nav()};n.append(h);if(shut)continue;
+  for(const i of idx){const f=D.flows[i];const d=el("div","f"+(i===fi?" on":"")+mindClass(f),f.title);d.append(el("small",null,f.steps.length+" steps"+(showMind?" · "+f.mind:"")));
+   d.onclick=()=>go(i);n.append(d)}}}
+function go(i){fi=i;si=0;stop();if(D.flows[fi])shutD.delete(D.flows[fi].domain);render()}
+function board(){const svg=$("board");svg.textContent="";const f=D.flows[fi];const laneH=58,left=200,stepW=118;
  const n=f?f.steps.length:0;const W=Math.max(640,left+40+n*stepW),H=D.lanes.length*laneH+20;svg.setAttribute("width",W);svg.setAttribute("height",H);
  D.lanes.forEach((l,i)=>{const y=10+i*laneH;S("rect",{x:0,y,width:W,height:laneH-6,rx:6,fill:V("--band")},svg);
-  const t=S("text",{x:12,y:y+(laneH-6)/2,class:"lane-label"+mindClass(l)},svg);t.textContent=l.title.length>20?l.title.slice(0,19)+"…":l.title;
+  const t=S("text",{x:12,y:y+(laneH-6)/2,class:"lane-label"+mindClass(l)},svg);t.textContent=l.title.length>25?l.title.slice(0,24)+"…":l.title;S("title",{},t).textContent=l.title;
   t.style.cursor="pointer";t.onclick=()=>detailFor(l)});
  if(!f)return;const pos=f.steps.map((s,i)=>({x:left+30+i*stepW,y:10+(laneIx.has(s.lane)?laneIx.get(s.lane):0)*laneH+(laneH-6)/2}));
  for(let i=1;i<n;i++){const a=pos[i-1],b=pos[i];const done=i<=si;
@@ -180,23 +256,40 @@ function detail(){const d=$("detail");d.textContent="";const f=D.flows[fi];if(!f
  chips(d,"reads",s.reads);chips(d,"writes",s.writes,"w");if(s.pin)pinCard(d,s.pin)}
 function detailFor(n){stop();const d=$("detail");d.textContent="";d.append(el("b",null,n.title));if(showMind)d.append(el("div","muted","you: "+n.mind));
  if(n.body)d.append(el("p",null,n.body));(n.invariants||[]).forEach(p=>pinCard(d,p))}
-function tables(){const a=$("tables");a.textContent="";a.append(el("div","muted","What the system keeps"));const s=D.flows[fi]?.steps[si];
- const touch=(t,c,list)=>(list||[]).some(x=>x===t||x===t+"."+c||(c==null&&x.startsWith(t+".")));
- for(const e of D.entities){const lit=s&&(touch(e.table,null,s.reads)||touch(e.table,null,s.writes));const box=el("div","t"+(lit?" lit":"")+mindClass(e));
-  box.append(el("b",null,e.table));for(const c of e.columns){const w=s&&touch(e.table,c,s.writes)||s&&(s.writes||[]).includes(e.table),r=s&&touch(e.table,c,s.reads)||s&&(s.reads||[]).includes(e.table);
-   box.append(el("span","col"+(w?" w":r?" r":""),c))}
-  (e.invariants||[]).forEach(p=>{const i=el("div","inv","◆ "+p.title);i.onclick=()=>detailFor({title:e.table,body:e.body,invariants:[p],mind:e.mind});box.append(i)});
-  box.querySelector("b").style.cursor="pointer";box.querySelector("b").onclick=()=>detailFor(e);a.append(box)}}
+const touch=(t,c,list)=>(list||[]).some(x=>x===t||x===t+"."+c||(c==null&&x.startsWith(t+".")));
+function tableCard(e,s,hide){const lit=s&&(touch(e.table,null,s.reads)||touch(e.table,null,s.writes));const box=el("div","t"+(lit?" lit":"")+mindClass(e));
+ if(hide){const x=el("span","x","hide");x.onclick=hide;box.append(x)}
+ box.append(el("b",null,e.table));for(const c of e.columns){const w=s&&touch(e.table,c,s.writes)||s&&(s.writes||[]).includes(e.table),r=s&&touch(e.table,c,s.reads)||s&&(s.reads||[]).includes(e.table);
+  box.append(el("span","col"+(w?" w":r?" r":""),c))}
+ (e.invariants||[]).forEach(p=>{const i=el("div","inv","◆ "+p.title);i.onclick=()=>detailFor({title:e.table,body:e.body,invariants:[p],mind:e.mind});box.append(i)});
+ box.querySelector("b").style.cursor="pointer";box.querySelector("b").onclick=()=>detailFor(e);return box}
+function toggle(set,k){set.has(k)?set.delete(k):set.add(k);tables()}
+function tables(){const a=$("tables");a.textContent="";const f=D.flows[fi],s=f?.steps[si];const inFlow=new Set(f?f.tables:[]);
+ if(f){a.append(el("div","dh","In this flow · "+inFlow.size));for(const e of D.entities)if(inFlow.has(e.id))a.append(tableCard(e,s));
+  if(f.unknown&&f.unknown.length)a.append(el("div","unk","Named here but not in the table list: "+f.unknown.join(", ")))}
+ const ql=q.trim().toLowerCase();const match=e=>!ql||e.table.toLowerCase().includes(ql)||e.columns.some(c=>c.toLowerCase().includes(ql));
+ a.append(el("div","muted",f?"Everything else the system keeps":"What the system keeps"));
+ for(const g of GROUPS){const rest=g.all.filter(e=>!inFlow.has(e.id)),shown=rest.filter(match);if(!rest.length||(ql&&!shown.length))continue;
+  const open=!!ql||(D.open_all!==flipG.has(g.name));const h=el("div","dh");
+  h.append(el("span",null,(open?"▾ ":"▸ ")+(g.name||"tables")),el("span",null,ql?shown.length+" of "+rest.length:String(rest.length)));
+  h.onclick=()=>toggle(flipG,g.name);a.append(h);if(!open)continue;
+  for(const e of shown){if(D.open_all!==flipT.has(e.id)){a.append(tableCard(e,s,()=>toggle(flipT,e.id)));continue}
+   const r=el("div","row"+mindClass(e));r.append(el("span",null,e.table),el("span",null,(e.invariants.length?"◆ ":"")+e.columns.length));
+   r.onclick=()=>toggle(flipT,e.id);a.append(r)}}}
 function render(){nav();board();detail();tables();const f=D.flows[fi];$("trig").textContent=f?(f.trigger?"Starts when: "+f.trigger:""):""}
 function stop(){if(timer){clearInterval(timer);timer=null}}
-document.addEventListener("keydown",e=>{const f=D.flows[fi];if(!f)return;
+$("tq").oninput=e=>{q=e.target.value;tables()};
+document.addEventListener("keydown",e=>{const f=D.flows[fi];if(!f||e.target.tagName==="INPUT")return;
  if(e.key==="ArrowRight"){si=Math.min(si+1,f.steps.length-1);stop();render()}else if(e.key==="ArrowLeft"){si=Math.max(si-1,0);stop();render()}
- else if(e.key==="ArrowDown"){fi=Math.min(fi+1,D.flows.length-1);si=0;render()}else if(e.key==="ArrowUp"){fi=Math.max(fi-1,0);si=0;render()}
+ else if(e.key==="ArrowDown"){go(Math.min(fi+1,D.flows.length-1))}else if(e.key==="ArrowUp"){go(Math.max(fi-1,0))}
  else if(e.key===" "){e.preventDefault();if(timer)stop();else{if(si>=f.steps.length-1)si=0;timer=setInterval(()=>{if(si>=f.steps.length-1)return stop();si++;render()},1600);render()}}});
 $("mind").onchange=e=>{showMind=e.target.checked;render()};
 $("quiz").onclick=()=>{const f=D.flows[fi];if(!f)return;const ids=[f.id,...f.steps.map(s=>s.pin&&s.pin.id).filter(Boolean)];
  const cmd="/quiz on "+ids.map(i=>"#"+i).join(" ");(navigator.clipboard?navigator.clipboard.writeText(cmd):Promise.reject()).then(()=>$("copied").textContent="copied: "+cmd,()=>$("copied").textContent=cmd)};
-$("meta").textContent=`${D.flows.length} flows · ${D.lanes.length} components · ${D.entities.length} tables`+(D.checked?(D.broken?` · ${D.broken} broken pointers`:" · every pointer checked"):" · pointers not checked")+` · ${D.generated} UTC`;
+const ptr=!D.checked?"pointers not checked":D.broken?`${D.broken} of ${D.pointers} pointers broken`:
+ D.pointers===D.steps?`every pointer checked (${D.pointers}, 0 broken)`:`${D.pointers} of ${D.steps} pointers checked, 0 broken`;
+$("meta").textContent=`${D.flows.length} flows in ${D.domains.length} domains · ${D.lanes.length} components · ${D.entities.length} tables · ${ptr} · ${D.generated} UTC`;
+if(D.warnings.length){const w=el("span","bad",D.warnings.length+(D.warnings.length>1?" warnings: ":" warning: ")+D.warnings.join(" · "));$("meta").after(w)}
 render();
 </script></body></html>
 """

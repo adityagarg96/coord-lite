@@ -16,19 +16,23 @@ trace from code, never from memory or the store's own bodies.
 2. **Make sure the stage exists.** Components are concept nodes with `attrs.lane` (an integer: top to bottom,
    the human or the caller first, storage last); tables are concept nodes with `attrs.entity` (the table name)
    and `attrs.columns`. `search` before creating; put new ones under a "Runtime" and a "Data" concept beneath
-   the concept root. Keep lanes to about eight: they are the system's big parts, not its files.
+   the concept root. Keep lanes to at most nine (the page warns past that): they are the system's deployable
+   parts, not its files. Name tables as the database does; a schema prefix (`core.reservations`) groups them.
 
 3. **Trace it in the code at the current commit.** Start at the entry point and follow the call path. For each
    step that changes state, crosses a component boundary, or decides something:
    - `text`: one sentence, in the system's own terms, of what happens and why it matters.
    - `lane`: the component node id.
-   - `at`: `path:line@<short sha>` (a range `path:12-18@sha` is fine), a line you actually read.
+   - `at`: `path:line@<short sha>` (a range `path:12-18@sha` is fine), a line you actually read. When the system
+     spans several checkouts under one parent directory, name the checkout first: `<checkout>/path:line@sha`,
+     with that checkout's sha, and pass the parent as `--repo`.
    - `reads` / `writes`: `table` or `table.column`.
    - `pin`: the id of an invariant or decision that bites at this step, if any. If you find a law that no node
      records yet, create the `invariant` (enforced_by, breaks_if, evidence) and pin it.
    Keep a flow to about 6-12 steps. Skip pure plumbing (argument parsing, logging) unless it decides something.
 
-4. **Store it** as a `concept` under the concept the flow is mostly about, titled as the scenario, with body
+4. **Store it** as a `concept` under the concept the flow is mostly about (its domain: the page groups flows by it,
+   so reuse a handful of domains rather than one per flow), titled as the scenario, with body
    "A flow: <trigger>.", `attrs.trigger` and `attrs.steps` (the list above).
 
 5. **Check it.** Run the storyboard with `--repo`: the header must say "every pointer checked". A broken pointer
