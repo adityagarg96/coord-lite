@@ -88,6 +88,9 @@ def main(argv=None):
     x = sub.add_parser("export")
     x.add_argument("--root", type=int, required=True)
     x.add_argument("--out", help="file to write (default: stdout)")
+    m = sub.add_parser("learnmap", help="write the fog-of-war understanding map as one local HTML file")
+    m.add_argument("--out", required=True)
+    m.add_argument("--include-imported", action="store_true")
     a = p.parse_args(argv)
 
     if a.cmd == "serve":
@@ -107,6 +110,11 @@ def main(argv=None):
         sys.stdout.write(views.knowledge_index(con))
     elif a.cmd == "journal-stats":
         print(json.dumps(views.journal_stats(con)))
+    elif a.cmd == "learnmap":
+        from .learnmap import map_html
+        with open(a.out, "w") as f:
+            f.write(map_html(con, a.include_imported))
+        print(a.out)
     elif a.cmd == "export":
         doc = views.map_export(con, a.root)
         if doc is None:

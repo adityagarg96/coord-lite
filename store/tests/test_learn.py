@@ -126,3 +126,15 @@ def test_learner_data_stays_out_of_the_shared_views(con, system):
     assert "my private answer" not in views.knowledge_index(con)
     assert "my private answer" not in views.map_export(con, system["root"])
     assert not views.changes_since(con)["changes"][-1]["what"].startswith("learn")
+
+
+def test_the_map_shows_state_and_never_embeds_text_as_html(con, system):
+    from coordlite.learnmap import map_data, map_html
+    views.node_edit(con, system["ingest"], {"body": "evil </script><script>alert(1)</script>"}, actor="w1")
+    learn.record(con, ask(con, system["recon"]), "x", "correct", 3)
+    d = map_data(con)
+    state = {n["id"]: n["state"] for n in d["nodes"]}
+    assert state[system["root"]] == "container" and state[system["recon"]] == "shaky"
+    assert state[system["canon"]] == "frontier" and state[system["ingest"]] == "frontier"
+    html = map_html(con)
+    assert "</script><script>alert" not in html and "<\\/script>" in html

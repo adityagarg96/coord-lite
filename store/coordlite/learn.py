@@ -71,12 +71,9 @@ def _candidates(con, include_imported: bool) -> dict[int, dict]:
     return rows
 
 
-def queue(con, limit: int = 8, new: int = 3, include_imported: bool = False) -> dict:
-    """Today's session: due cards first (least retrievable first), then up to `new` nodes from the frontier of the
-    fog. Each item says whether a prepared question is waiting for it (prepare the rest before the session)."""
-    sched, now = scheduler(), _now()
-    rows = _candidates(con, include_imported)
-    cards = {r["node_id"]: r for r in con.execute("SELECT * FROM learner_card")}
+def _frontier(con, rows: dict, cards: dict) -> list[int]:
+    """Never-asked knowledge nodes whose parent is understood (or is a container), in the order to learn them:
+    shallow first, then the least-guarded invariants, then the most connected."""
     edges = {}
     for e in con.execute("SELECT src, dst FROM edge"):
         edges[e["src"]] = edges.get(e["src"], 0) + 1
@@ -90,10 +87,7 @@ def queue(con, limit: int = 8, new: int = 3, include_imported: bool = False) -> 
         while rows.get(i) and rows[i]["parent_id"] is not None and i not in seen:
             seen.add(i); i = rows[i]["parent_id"]; d += 1
         return d
-
-    due = sorted(((_retrievability(c, sched, now), nid) for nid, c in cards.items()
-                  if nid in rows and parse_iso(c["due"]) <= now), key=lambda x: x)
-    frontier = []
+    out = []
     for i, n in rows.items():
         if n["kind"] not in QUIZ_KINDS or i in cards:
             continue
@@ -105,9 +99,20 @@ def queue(con, limit: int = 8, new: int = 3, include_imported: bool = False) -> 
                                            or (cards.get(p) and cards[p]["last_verdict"] in ("correct", "partial")))
         if parent_open:
             a = json.loads(n["attrs"] or "{}")
-            frontier.append(((depth(i), _FRAGILE.get(a.get("enforced_by"), 9) if n["kind"] == "invariant" else 9,
-                              -(edges.get(i, 0) + kids.get(i, 0)), i), i))
-    frontier.sort()
+            out.append(((depth(i), _FRAGILE.get(a.get("enforced_by"), 9) if n["kind"] == "invariant" else 9,
+                         -(edges.get(i, 0) + kids.get(i, 0)), i), i))
+    return [i for _, i in sorted(out)]
+
+
+def queue(con, limit: int = 8, new: int = 3, include_imported: bool = False) -> dict:
+    """Today's session: due cards first (least retrievable first), then up to `new` nodes from the frontier of the
+    fog. Each item says whether a prepared question is waiting for it (prepare the rest before the session)."""
+    sched, now = scheduler(), _now()
+    rows = _candidates(con, include_imported)
+    cards = {r["node_id"]: r for r in con.execute("SELECT * FROM learner_card")}
+    due = sorted(((_retrievability(c, sched, now), nid) for nid, c in cards.items()
+                  if nid in rows and parse_iso(c["due"]) <= now), key=lambda x: x)
+    frontier = [(None, i) for i in _frontier(con, rows, cards)]
     picked_due = [nid for _, nid in due][: max(limit - new, 0)]
     picked_new = [nid for _, nid in frontier][:new]
     spare = limit - len(picked_due) - len(picked_new)
