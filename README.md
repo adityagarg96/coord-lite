@@ -69,6 +69,33 @@ reached a concept body as "X is used"). The flush therefore separates **Decision
 body only after checking it at the current commit (cited as `path:line@sha`); otherwise the claim waits in the
 node's `attrs.to_verify`, which `store_lint` reports.
 
+## The daily quiz
+
+Agents now do most of the building, which is good for output and bad for the human's grip on the system ("let me ask
+my agent and get back to you"). `/quiz` is a 15-20 minute closed-book session each morning on what the store knows:
+the data model, the architecture, the **invariants** and the **decisions**, the things a staff engineer carries in
+their head. It borrows from [Sphinx](https://github.com/parthh01/sphinx) (questions ask for a prediction and its
+cause, keys are written before the answer and grounded in evidence) and from the fog of war in Matt Pocock's
+`grilling` skill (start at the top of each tree, open a branch once its parent is understood).
+
+| piece | what it is |
+|---|---|
+| `invariant` nodes | the laws of the system, with `attrs.enforced_by` (db / code / convention / none), `breaks_if` and `evidence`. Listed in the knowledge index least-guarded first; linted when unsupported. |
+| decision provenance | `attrs.decided_by`, `decided_at`, `decided_in` (a session and turn, a PR, a message, a meeting): real decisions live in conversations, not specs |
+| learner tables | `learner_card` (one [FSRS](https://github.com/open-spaced-repetition/py-fsrs) memory per node, plus the level reached: what/where, how/why, what-if), `learner_question` (prepared prompts with private keys), `learner_review` (every answer, append-only). Parallel to the journal: out of the graph, the index and the exports. |
+| tools | `learn_queue` (due first, then the frontier of the fog), `learn_prepare`, `learn_key` (only after answering), `learn_record` (moves the card; a miss names children to drill; a dispute lands on the node as `to_verify`), `learner_profile` (what the human knows, for agents to calibrate to; also one line in the master's boot packet) |
+| skills | `quiz` (the session, rounds of three, confidence 1-4 before grading) and `quiz-prepare` (a background subagent writes the questions, so nothing the human should not see yet is on their screen) |
+
+The unit scheduled is a node, not a card: each review asks a fresh question about it, so you cannot pass by
+remembering the wording. FSRS's minute-level learning steps are off, since this is a once-a-day practice. A
+confident wrong answer schedules like any miss but is reported, since it is the most useful one.
+
+**Rolling it out on an existing store.** Schema version 1 (an additive CHECK migration and a `user_version` stamp)
+must be running in every session before version 2 (the `invariant` kind) touches the store: a binary from before
+version 1 cannot open a store that holds an invariant. So: back up the store (`sqlite3 store.db ".backup ..."`),
+deploy commit `baa8d8c`, restart every session, then deploy the rest and restart again. From version 1 on, a binary
+that is too old says so ("update coord-lite") instead of failing on a constraint.
+
 ## Imported records
 
 Nodes loaded from an existing document or archive are history, not open work. Mark them with `attrs.source`
@@ -100,7 +127,7 @@ receipt keyed `pr:<repo>#<n>@<head sha>`, so re-ingesting a PR only processes co
 ## Tests
 
 ```sh
-cd store && uv run pytest -q            # 27 tests, tmp SQLite only (incl. 5 concurrent writers, a real stdio MCP round trip)
+cd store && uv run pytest -q            # 49 tests, tmp SQLite only (incl. 5 concurrent writers, a real stdio MCP round trip, schema migration, the learner)
 cd plugins/handoff && node --test logic.test.ts journal.test.ts   # 17 tests, handoff + journal against a fake host
 ```
 

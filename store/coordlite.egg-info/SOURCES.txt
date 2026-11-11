@@ -2,6 +2,7 @@ pyproject.toml
 coordlite/__init__.py
 coordlite/__main__.py
 coordlite/db.py
+coordlite/learn.py
 coordlite/server.py
 coordlite/timing.py
 coordlite/views.py
@@ -11,3 +12,5 @@ coordlite.egg-info/dependency_links.txt
 coordlite.egg-info/entry_points.txt
 coordlite.egg-info/requires.txt
 coordlite.egg-info/top_level.txt
+tests/test_schema.py
+tests/test_store.py

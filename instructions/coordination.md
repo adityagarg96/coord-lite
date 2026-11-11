@@ -80,6 +80,14 @@ What sessions learn flows into the graph in three steps, so nobody has to re-rea
 - **Decisions** say who made them, when and where: `attrs.decided_by`, `attrs.decided_at`, `attrs.decided_in`
   (a session and turn, a PR, a message link, a meeting). Real decisions mostly live in conversations, not specs.
 
+## The human's understanding
+
+The store also tracks what the human understands of all this (`learner_profile`): which parts are solid, which are
+shaky, which they have never been asked about, and what they were sure of and wrong. Before you explain part of the
+system to them, or when they ask about it, check `learner_profile(node_id)` and calibrate: start from what they know,
+spell out what they don't, and when a decision rests on a shaky area, ask them to predict before you tell. Never
+use it to hold information back. The daily `/quiz` (the `quiz` skill) is how it grows.
+
 ## Peers
 
 - `peers list` shows the live sessions. Name your session (its title) before your first message.

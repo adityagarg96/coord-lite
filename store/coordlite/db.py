@@ -130,6 +130,49 @@ CREATE TRIGGER IF NOT EXISTS journal_body_immutable BEFORE UPDATE OF at, session
 CREATE TRIGGER IF NOT EXISTS journal_no_delete BEFORE DELETE ON journal
   BEGIN SELECT RAISE(ABORT, 'journal entries are append-only'); END;
 
+-- What the human understands (coordlite/learn.py): kept OUT of the graph like the journal, read through learner_* tools.
+CREATE TABLE IF NOT EXISTS learner_card(
+  node_id INTEGER PRIMARY KEY REFERENCES node(id),
+  level INTEGER NOT NULL DEFAULT 1 CHECK (level IN (1,2,3)),   -- 1 what/where · 2 how/why · 3 what-if/trade-offs
+  card TEXT NOT NULL,                  -- py-fsrs Card.to_dict()
+  due TEXT NOT NULL,
+  reviews INTEGER NOT NULL DEFAULT 0,
+  lapses INTEGER NOT NULL DEFAULT 0,
+  last_verdict TEXT,
+  updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS learner_card_due ON learner_card(due);
+CREATE TABLE IF NOT EXISTS learner_question(
+  id INTEGER PRIMARY KEY,
+  node_id INTEGER NOT NULL REFERENCES node(id),
+  level INTEGER NOT NULL CHECK (level IN (1,2,3)),
+  prompt TEXT NOT NULL,
+  key TEXT NOT NULL,                   -- private until answered: the minimum a correct answer must establish
+  evidence TEXT NOT NULL,              -- JSON list: path:line@sha, #id, or a quoted source
+  prepared_by TEXT,
+  created_at TEXT NOT NULL,
+  answered_at TEXT
+);
+CREATE INDEX IF NOT EXISTS learner_question_open ON learner_question(node_id, answered_at);
+CREATE TABLE IF NOT EXISTS learner_review(
+  id INTEGER PRIMARY KEY,
+  at TEXT NOT NULL,
+  node_id INTEGER NOT NULL REFERENCES node(id),
+  question_id INTEGER REFERENCES learner_question(id),
+  level INTEGER,
+  verdict TEXT NOT NULL CHECK (verdict IN ('correct','partial','incorrect','skipped','disputed')),
+  confidence INTEGER CHECK (confidence BETWEEN 1 AND 4),
+  rating INTEGER,
+  answer TEXT,
+  feedback TEXT,
+  actor TEXT
+);
+CREATE INDEX IF NOT EXISTS learner_review_node ON learner_review(node_id, id);
+CREATE TRIGGER IF NOT EXISTS learner_review_no_update BEFORE UPDATE ON learner_review
+  BEGIN SELECT RAISE(ABORT, 'learner reviews are append-only'); END;
+CREATE TRIGGER IF NOT EXISTS learner_review_no_delete BEFORE DELETE ON learner_review
+  BEGIN SELECT RAISE(ABORT, 'learner reviews are append-only'); END;
+
 CREATE VIRTUAL TABLE IF NOT EXISTS node_fts USING fts5(title, body, content='node', content_rowid='id');
 CREATE TRIGGER IF NOT EXISTS node_fts_ai AFTER INSERT ON node BEGIN
   INSERT INTO node_fts(rowid, title, body) VALUES (new.id, new.title, COALESCE(new.body, ''));

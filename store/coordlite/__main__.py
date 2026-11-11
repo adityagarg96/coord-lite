@@ -10,7 +10,7 @@ import argparse
 import json
 import sys
 
-from . import views
+from . import learn, views
 from .db import DB_PATH, connect
 
 BOOT_CAP = 40_000   # characters of plan text in a boot packet; the session pulls the rest with plan_render
@@ -54,6 +54,9 @@ def boot_packet(con, scope: str = "master", since: str | None = None) -> str:
     if js["pending"]:
         parts.append(f"## Journal\n{js['pending']} uncompiled journal entries (oldest {js['oldest_pending'][:10]}). "
                      "Compile them with the knowledge-compile skill (in a background subagent) when you have a quiet moment.")
+    understood = learn.profile_line(con)
+    if understood:
+        parts.append("## What the human understands (learner_profile)\n" + understood)
     parts.append("## Knowledge index\n" + views.knowledge_index(con, max_chars=12_000))
     parts.append("## Continue\nTell the user in one line that you resumed from a handoff and what you will do next, "
                  "then carry on with the brief's `next`. Use `peers list` to see the live sessions.")

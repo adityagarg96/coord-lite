@@ -10,7 +10,7 @@ import time
 
 from mcp.server.mcpserver import MCPServer
 
-from . import views
+from . import learn, views
 from .db import DB_PATH, connect
 
 MAX_ROWS = 200
@@ -253,6 +253,49 @@ def brief_write(actor: str, scope: str, purpose: str, happened: str, open: str, 
     ruled_out, ≤1200 chars each. Called at handoff; write it so a fresh session can continue without asking."""
     return _j(views.brief_write, con(), scope, {"purpose": purpose, "happened": happened, "open": open,
                                                "next": next, "ruled_out": ruled_out}, actor)
+
+
+# ---------------------------------------------------------------- the learner (what the human understands; learn.py)
+
+@mcp.tool()
+def learn_queue(limit: int = 8, new: int = 3, include_imported: bool = False) -> str:
+    """Today's quiz: knowledge nodes due for review (least remembered first), then up to `new` from the frontier of
+    the fog (never asked, parent already understood; foundations and least-guarded invariants first). Each item
+    has question_id and prompt if a question is prepared; `unprepared` lists nodes that still need learn_prepare."""
+    return _j(learn.queue, con(), limit, new, include_imported)
+
+
+@mcp.tool()
+def learn_prepare(actor: str, node_id: int, prompt: str, key: str, evidence: list, level: int = 1) -> str:
+    """Store one quiz question for a knowledge node, with its PRIVATE answer key (the minimum a correct answer must
+    establish: the prediction and its cause) and evidence (path:line@sha checked at HEAD, #id, or a quoted source).
+    level: 1 what/where, 2 how/why, 3 what-if/trade-offs. Run by a background subagent, never in the quiz session."""
+    return _j(learn.prepare, con(), node_id, prompt, key, evidence, level, actor)
+
+
+@mcp.tool()
+def learn_key(question_id: int) -> str:
+    """The answer key and evidence for grading. Call it only AFTER the human has answered: the quiz is closed book."""
+    return _j(learn.key, con(), question_id)
+
+
+@mcp.tool()
+def learn_record(actor: str, question_id: int, answer: str, verdict: str, confidence: int | None = None,
+                 feedback: str = "", dispute: str | None = None) -> str:
+    """Record one graded answer. verdict: correct|partial|incorrect|skipped|disputed. confidence: the human's own
+    1 (guess) to 4 (certain), asked BEFORE they saw the key. Moves the node's spaced-repetition card; returns the
+    next due date, the level reached, `drill` (children to probe after a miss) and `hypercorrection` (certain and
+    wrong). A dispute needs its reason; it changes no memory and lands on the node as an unverified claim."""
+    return _j(learn.record, con(), question_id, answer, verdict, confidence, feedback, dispute, actor)
+
+
+@mcp.tool()
+def learner_profile(node_id: int | None = None, limit: int = 8) -> str:
+    """What the human understands of this system: counts (solid / shaky / never asked), weakest and strongest
+    nodes, and misses they were certain about; with node_id, that node's state and recent answers. Check it before
+    explaining part of the system to them, and calibrate: start from what they know, spell out what they don't.
+    Never use it to hold information back."""
+    return _j(learn.profile, con(), node_id, limit)
 
 
 def main():
