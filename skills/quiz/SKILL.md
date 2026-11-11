@@ -26,6 +26,9 @@ answered it. Tool output is on their screen. You see a question's prompt from `l
 
    Then ask for an answer to each, plus a **confidence** from 1 (guess) to 4 (certain). Short typed answers are
    fine: a prediction and the reason. They can answer `skip`, or `dispute Qn: <why the question is wrong>`.
+   If the harness has a structured question tool (a form or multiple-choice prompt), use it: per quiz question,
+   one free-text answer (with Skip and Dispute as choices) and one confidence choice (1 guess, 2 unsure,
+   3 fairly sure, 4 certain). Two quiz questions per form keeps it readable. Never put the answer among the choices.
 
 3. **Grade each answer.** `learn_key(question_id)`, then judge it against the key like a fair senior engineer in
    conversation, not an exam marker:

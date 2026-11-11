@@ -44,8 +44,13 @@ For each node id you were given (and its level, from `learn_queue`; level 1 if n
    Rules (from Sphinx's reviewer, which learned them the hard way):
    - Ask for a **prediction and its cause**. Never a file name, function name, line number or literal from the code.
    - **Neutral wording.** Do not give the outcome away: ask "what happens when the job reruns, and why?", not
-     "why is the rerun safe?".
-   - State the conditions a defensible answer needs. One question, one idea.
+     "why is the rerun safe?". No presupposition in the second half of the question either: "which of A or B
+     survives, and what makes it the one you can rely on?" has already said one does. Ask "what does each of A and
+     B carry across, and why?" instead. Before storing, reread the prompt as the human: if the wording points at
+     the answer, rewrite it.
+   - State the conditions a defensible answer needs. One question, one idea: exactly two asks, **what happens**
+     and **why**. "What does X consist of, which component builds it, from what, and what carries over?" is four
+     questions; pick the one that matters and leave the rest for another day.
    - A new scenario every time. Rephrasing an earlier prompt with new labels is not a new question.
 
 4. **The key** is the minimum a correct answer must establish: one prediction and one causal reason, in a few
