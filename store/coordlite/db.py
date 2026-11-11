@@ -154,6 +154,17 @@ def parse_iso(s: str | None) -> datetime | None:
     return datetime.fromisoformat(s.replace("Z", "+00:00"))
 
 
+# The store's schema version, kept in PRAGMA user_version. Bump it whenever a store written by this code could break
+# an OLDER coordlite (a new node kind, a changed table). A binary refuses a store newer than it understands, with
+# a clear message, instead of failing on a CHECK constraint or, worse, narrowing a CHECK list a newer binary widened.
+#   1  additive CHECK migration + this stamp (every binary from here on is safe to mix with newer ones)
+SCHEMA_VERSION = 1
+
+
+class StoreVersionError(RuntimeError):
+    pass
+
+
 def connect(path: Path | str | None = None) -> sqlite3.Connection:
     path = Path(path or DB_PATH)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -162,8 +173,16 @@ def connect(path: Path | str | None = None) -> sqlite3.Connection:
     con.execute("PRAGMA journal_mode=WAL")
     con.execute("PRAGMA foreign_keys=ON")
     con.execute("PRAGMA busy_timeout=10000")
+    have = con.execute("PRAGMA user_version").fetchone()[0]
+    if have > SCHEMA_VERSION:
+        con.close()
+        raise StoreVersionError(
+            f"{path} is schema version {have}, but this coordlite understands up to {SCHEMA_VERSION}. "
+            f"Update coord-lite (git pull, then python3 install.py) and restart the session.")
     migrate_checks(con)
     con.executescript(SCHEMA)
+    if have < SCHEMA_VERSION:
+        con.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
     return con
 
 
@@ -188,22 +207,34 @@ def _in_list(values) -> str:
     return ",".join(repr(v) for v in sorted(values))
 
 
+def _widened(sql: str, col: str, wanted: set[str]) -> str:
+    """`sql` with the `<col> IN (...)` list replaced by the UNION of what it already allows and `wanted`.
+    Never narrows: a store written by a newer coordlite (a kind this binary has never heard of) stays valid."""
+    m = re.search(rf"\b{col} IN \(([^)]*)\)", sql)
+    if m is None:
+        return sql
+    have = set(re.findall(r"'([^']*)'", m.group(1)))
+    if wanted <= have:
+        return sql
+    return sql[:m.start()] + f"{col} IN ({_in_list(have | wanted)})" + sql[m.end():]
+
+
 def migrate_checks(con):
     """Widen the CHECK lists on node.kind / edge.rel when KINDS or RELS grow. SQLite cannot ALTER a CHECK,
     so the table is rebuilt from its OWN stored CREATE statement with only the lists rewritten.
-    One transaction, idempotent: a no-op once the lists match."""
+    ADDITIVE ONLY (it used to rewrite the list to match this binary's KINDS, so an older binary opening a store
+    that held a newer kind failed on a CHECK constraint). One transaction, idempotent: a no-op once the stored
+    lists already cover KINDS and RELS."""
     tables = {r["name"]: r["sql"] for r in con.execute(
         "SELECT name, sql FROM sqlite_master WHERE type='table' AND name IN ('node','edge')")}
     plans = []
     if "node" in tables:
-        sql = tables["node"]
-        new = re.sub(r"kind IN \([^)]*\)\)", f"kind IN ({_in_list(KINDS)}))", sql, count=1)
-        if new != sql:
+        new = _widened(tables["node"], "kind", set(KINDS))
+        if new != tables["node"]:
             plans.append(("node", new))
     if "edge" in tables:
-        sql = tables["edge"]
-        new = re.sub(r"rel IN \([^)]*\)", f"rel IN ({_in_list(RELS)})", sql, count=1)
-        if new != sql:
+        new = _widened(tables["edge"], "rel", set(RELS))
+        if new != tables["edge"]:
             plans.append(("edge", new))
     if not plans:
         return False
