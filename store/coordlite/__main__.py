@@ -91,6 +91,10 @@ def main(argv=None):
     m = sub.add_parser("learnmap", help="write the fog-of-war understanding map as one local HTML file")
     m.add_argument("--out", required=True)
     m.add_argument("--include-imported", action="store_true")
+    sb = sub.add_parser("storyboard", help="write the system storyboard (flows across components) as one local HTML file")
+    sb.add_argument("--out", required=True)
+    sb.add_argument("--repo", help="checkout to verify every step's path:line@sha against")
+    sb.add_argument("--root", type=int, help="only this subtree")
     a = p.parse_args(argv)
 
     if a.cmd == "serve":
@@ -114,6 +118,11 @@ def main(argv=None):
         from .learnmap import map_html
         with open(a.out, "w") as f:
             f.write(map_html(con, a.include_imported))
+        print(a.out)
+    elif a.cmd == "storyboard":
+        from .storyboard import board_html
+        with open(a.out, "w") as f:
+            f.write(board_html(con, a.repo, a.root))
         print(a.out)
     elif a.cmd == "export":
         doc = views.map_export(con, a.root)

@@ -138,3 +138,20 @@ def test_the_map_shows_state_and_never_embeds_text_as_html(con, system):
     assert state[system["canon"]] == "frontier" and state[system["ingest"]] == "frontier"
     html = map_html(con)
     assert "</script><script>alert" not in html and "<\\/script>" in html
+
+
+def test_the_storyboard_plays_flows_and_flags_broken_pointers(con, system, tmp_path):
+    from coordlite.storyboard import board_data, board_html
+    (tmp_path / "a.py").write_text("one\ntwo\nthree\n")
+    lane = mk(con, "Server", parent=system["root"], attrs={"lane": 0})
+    mk(con, "reservation", parent=system["root"], attrs={"entity": "reservation", "columns": ["id", "hotel"]})
+    mk(con, "A booking arrives", parent=system["recon"], body="</script><script>alert(1)</script>",
+       attrs={"trigger": "an OTA sends a booking", "steps": [
+           {"lane": lane, "text": "parse", "at": "a.py:2", "writes": ["reservation.hotel"], "pin": system["law"]},
+           {"lane": lane, "text": "ghost", "at": "a.py:99"}]})
+    d = board_data(con, repo=str(tmp_path))
+    f = d["flows"][0]
+    assert [s["ok"] for s in f["steps"]] == [True, False] and d["broken"] == 1
+    assert f["steps"][0]["pin"]["kind"] == "invariant" and f["trigger"] == "an OTA sends a booking"
+    assert d["lanes"][0]["title"] == "Server" and d["entities"][0]["columns"] == ["id", "hotel"]
+    assert "</script><script>alert" not in board_html(con)

@@ -86,6 +86,15 @@ cause, keys are written before the answer and grounded in evidence) and from the
 | tools | `learn_queue` (due first, then the frontier of the fog), `learn_prepare`, `learn_key` (only after answering), `learn_record` (moves the card; a miss names children to drill; a dispute lands on the node as `to_verify`), `learner_profile` (what the human knows, for agents to calibrate to; also one line in the master's boot packet) |
 | skills | `quiz` (the session, rounds of three, confidence 1-4 before grading) and `quiz-prepare` (a background subagent writes the questions, so nothing the human should not see yet is on their screen) |
 
+**See it.** Two local HTML files, never published (a work store must not leave the machine):
+`python -m coordlite storyboard --repo <checkout> --out board.html` is the **system storyboard**: components as lanes,
+tables as a fixed column, and **flows** (concepts with `attrs.steps`, written by the `trace-flow` skill) you step
+through with the arrow keys, each step lighting its lane, its `path:line@sha` (re-checked against the checkout) and
+the columns it reads and writes, with invariants and decisions pinned where they bite. "Quiz me on this flow" copies
+`/quiz on #ids`. `python -m coordlite learnmap --out map.html` is the fog-of-war tree of every concept with your
+state on it. The grammar follows Colin Ware's rules (Visual Thinking for Design): stable layout, luminance for state,
+amber the only colour.
+
 The unit scheduled is a node, not a card: each review asks a fresh question about it, so you cannot pass by
 remembering the wording. FSRS's minute-level learning steps are off, since this is a once-a-day practice. A
 confident wrong answer schedules like any miss but is reported, since it is the most useful one.

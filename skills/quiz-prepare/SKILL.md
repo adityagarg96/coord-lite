@@ -41,6 +41,11 @@ For each node id you were given (and its level, from `learn_queue`; level 1 if n
    - **decision**: ask what problem it solved and what was given up, or what would have to change for the rejected
      option to be right. Never "who decided" alone.
    - **concept**: its role and its boundary: what it owns, what it deliberately does not.
+   - **flow** (a concept with `attrs.steps`, drawn on the storyboard): pick one step and change one condition: a
+     crash between two steps, a second session arriving at the same step, a missing or duplicate row, a step
+     reordered. Ask what happens downstream and why. The key walks the changed path step by step, citing each
+     step's `at`. Level 1 asks what starts the flow and what it leaves behind; level 2 why a step is where it is;
+     level 3 the failure scenario.
    Rules (from Sphinx's reviewer, which learned them the hard way):
    - Ask for a **prediction and its cause**. Never a file name, function name, line number or literal from the code.
    - **Neutral wording.** Do not give the outcome away: ask "what happens when the job reruns, and why?", not

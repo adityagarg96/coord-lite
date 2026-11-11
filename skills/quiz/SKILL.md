@@ -12,7 +12,9 @@ grade fairly.
 answered it. Tool output is on their screen. You see a question's prompt from `learn_queue` and its key only via
 `learn_key`, after they answer.
 
-1. **Plan the session.** `learn_queue(limit=8, new=3)`. If `unprepared` is not empty, start a **background**
+1. **Plan the session.** If the human named nodes (`/quiz on #12 #15`, which the storyboard's "Quiz me on this
+   flow" button copies), quiz those first, at their card's level (1 if new), whatever the queue says; prepare
+   any that have no open question. Otherwise: `learn_queue(limit=8, new=3)`. If `unprepared` is not empty, start a **background**
    subagent on the `quiz-prepare` skill for those node ids (with their levels), and begin with the prepared
    items. Pick up the rest when it reports. If nothing is due and the frontier is empty, say so and stop: the
    store needs more knowledge first (see knowledge-compile and ingest-pr).
