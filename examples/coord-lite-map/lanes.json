@@ -1,0 +1,38 @@
+[
+ {
+  "key": "human",
+  "title": "Human",
+  "body": "You: reads the plan, answers the quiz, decides.",
+  "order": 0
+ },
+ {
+  "key": "master-session",
+  "title": "Master session",
+  "body": "The coordinating OpenCode session: owns the plan, assigns work, runs compile and the quiz.",
+  "order": 1
+ },
+ {
+  "key": "worker-or-subagent",
+  "title": "Worker or subagent",
+  "body": "A building session (w1..w5) or a background subagent the master starts.",
+  "order": 2
+ },
+ {
+  "key": "handoff-plugin",
+  "title": "Handoff plugin",
+  "body": "The OpenCode plugin (plugins/handoff): handoff instead of compaction, journal flushes, the index in every prompt.",
+  "order": 3
+ },
+ {
+  "key": "store-server-and-cli",
+  "title": "Store server and CLI",
+  "body": "coordlite: one MCP server process per session (tools), and the CLI the plugin shells out to.",
+  "order": 4
+ },
+ {
+  "key": "sqlite-store",
+  "title": "SQLite store",
+  "body": "One WAL-mode file shared by every session; every multi-statement write runs inside BEGIN IMMEDIATE.",
+  "order": 5
+ }
+]

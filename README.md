@@ -99,6 +99,16 @@ counts the pointers checked and broken, and warns past nine lanes. "Quiz me on t
 state on it. The grammar follows Colin Ware's rules (Visual Thinking for Design): stable layout, luminance for state,
 amber the only colour.
 
+**Map a system.** The storyboard's data is a directory of JSON (lanes, tables, invariants, decisions, `flows/`),
+loaded with `python -m coordlite map-load <dir>`, idempotent by key. `examples/coord-lite-map/` is coord-lite's own
+map: 6 lanes, 9 tables, 9 invariants, 4 flows (open its `board.html`, or rebuild it with
+`COORD_DB=<a new store file> python -m coordlite map-load examples/coord-lite-map` and the storyboard command).
+Skills: `map-system` bootstraps a project's map (tables from the schema by script, lanes the human approves, flows
+chosen from evidence), `trace-flow` traces one flow, `verify-flow` has a different session second-read each step's
+claim (`flow_check`; the tracer is refused), and `ingest-pr` re-traces the flows a PR touches (`flows_touching`).
+Built with `--repo`, the page re-checks every pointer and marks steps whose code has **moved** or **changed** at
+HEAD since they were traced: a valid pointer only proves the line exists.
+
 The unit scheduled is a node, not a card: each review asks a fresh question about it, so you cannot pass by
 remembering the wording. FSRS's minute-level learning steps are off, since this is a once-a-day practice. A
 confident wrong answer schedules like any miss but is reported, since it is the most useful one.

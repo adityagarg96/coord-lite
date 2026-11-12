@@ -1,0 +1,121 @@
+[
+ {
+  "name": "node",
+  "columns": [
+   "id",
+   "kind",
+   "title",
+   "body",
+   "parent_id",
+   "state",
+   "status",
+   "attrs",
+   "source_key",
+   "updated_at",
+   "touched_at",
+   "why_dropped"
+  ],
+  "body": "Every concept, decision, invariant, requirement, brief: the graph's vertices, one parent each.",
+  "layer": "graph and coordination"
+ },
+ {
+  "name": "edge",
+  "columns": [
+   "src",
+   "dst",
+   "rel",
+   "note"
+  ],
+  "body": "Typed links between nodes (relates_to, blocks, informs, supersedes...).",
+  "layer": "graph and coordination"
+ },
+ {
+  "name": "change",
+  "columns": [
+   "at",
+   "actor",
+   "node_id",
+   "what"
+  ],
+  "body": "The attributed log of every write: how sessions see each other's work.",
+  "layer": "graph and coordination"
+ },
+ {
+  "name": "receipt",
+  "columns": [
+   "source",
+   "ts",
+   "node_id",
+   "payload",
+   "dedupe_key"
+  ],
+  "body": "Append-only evidence of progress (a PR, a test, a compile).",
+  "layer": "graph and coordination"
+ },
+ {
+  "name": "journal",
+  "columns": [
+   "at",
+   "session_id",
+   "actor",
+   "kind",
+   "body",
+   "compiled_at",
+   "compiled_into"
+  ],
+  "body": "Append-only raw accounts of work, outside the graph, waiting to be compiled.",
+  "layer": "graph and coordination"
+ },
+ {
+  "name": "session",
+  "columns": [
+   "scope",
+   "opencode_session_id",
+   "started_at",
+   "ended_at",
+   "brief_node_id"
+  ],
+  "body": "One row per master life; a handoff ends one and opens the next.",
+  "layer": "graph and coordination"
+ },
+ {
+  "name": "learner_card",
+  "columns": [
+   "node_id",
+   "level",
+   "card",
+   "due",
+   "reviews",
+   "lapses",
+   "last_verdict"
+  ],
+  "body": "One FSRS memory per knowledge node the human has been asked about.",
+  "layer": "learner"
+ },
+ {
+  "name": "learner_question",
+  "columns": [
+   "node_id",
+   "level",
+   "prompt",
+   "key",
+   "evidence",
+   "answered_at"
+  ],
+  "body": "Prepared questions with private keys.",
+  "layer": "learner"
+ },
+ {
+  "name": "learner_review",
+  "columns": [
+   "node_id",
+   "question_id",
+   "verdict",
+   "confidence",
+   "rating",
+   "answer"
+  ],
+  "body": "Every answer, append-only.",
+  "layer": "learner"
+ }
+]

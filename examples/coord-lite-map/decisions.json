@@ -1,0 +1,20 @@
+[
+ {
+  "key": "replace-the-compaction-summary-instead-of-starting-a-new-ses",
+  "title": "Replace the compaction summary instead of starting a new session",
+  "body": "The handoff overwrites OpenCode's compaction result with the boot packet, so the session keeps its id and title and peers can still reach it. A new session would have lost the peer address.",
+  "under": "Handoff",
+  "decided_by": "maintainer",
+  "decided_at": "2026-10-24",
+  "decided_in": "coord-lite v0 build (commit 3b9e5d0)"
+ },
+ {
+  "key": "learner-data-lives-in-the-store-outside-the-graph",
+  "title": "Learner data lives in the store, outside the graph",
+  "body": "Learner state is tables beside the journal, not nodes: agents can read what the human knows through learner_profile, while the index, exports and change log stay free of a daily time series. Chosen over a separate learn.db so agents can calibrate to the human.",
+  "under": "Learner layer",
+  "decided_by": "maintainer",
+  "decided_at": "2026-11-10",
+  "decided_in": "commit dcaa879 (learner layer)"
+ }
+]

@@ -95,6 +95,9 @@ def main(argv=None):
     sb.add_argument("--out", required=True)
     sb.add_argument("--repo", help="checkout to verify every step's path:line@sha against")
     sb.add_argument("--root", type=int, help="only this subtree")
+    ml = sub.add_parser("map-load", help="load a system map (lanes, tables, invariants, decisions, flows) from JSON")
+    ml.add_argument("path", help="a JSON file, or a directory with lanes.json, tables.json, ..., flows/*.json")
+    ml.add_argument("--actor", default="map-load")
     a = p.parse_args(argv)
 
     if a.cmd == "serve":
@@ -119,6 +122,9 @@ def main(argv=None):
         with open(a.out, "w") as f:
             f.write(map_html(con, a.include_imported))
         print(a.out)
+    elif a.cmd == "map-load":
+        from .sysmap import load_path
+        print(json.dumps(load_path(con, a.path, a.actor)))
     elif a.cmd == "storyboard":
         from .storyboard import board_html
         with open(a.out, "w") as f:

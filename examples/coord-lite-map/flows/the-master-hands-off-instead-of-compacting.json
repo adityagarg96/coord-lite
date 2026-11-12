@@ -1,0 +1,89 @@
+{
+ "key": "the-master-hands-off-instead-of-compacting",
+ "title": "The master hands off instead of compacting",
+ "domain": "Handoff",
+ "trigger": "the master's context crosses the threshold (~60-70% of the window)",
+ "steps": [
+  {
+   "lane": "handoff-plugin",
+   "text": "After a step, the plugin sees the context is over the threshold.",
+   "at": "plugins/handoff/logic.ts:115@3d13c64",
+   "reads": [],
+   "writes": []
+  },
+  {
+   "lane": "handoff-plugin",
+   "text": "It queues the HANDOFF prompt into the master's session.",
+   "at": "plugins/handoff/logic.ts:121@3d13c64",
+   "reads": [],
+   "writes": []
+  },
+  {
+   "lane": "master-session",
+   "text": "The master rewrites its brief: purpose, happened, open, next, ruled out.",
+   "at": "store/coordlite/views.py:742@3d13c64",
+   "reads": [],
+   "writes": [
+    "node.body",
+    "node.attrs"
+   ],
+   "pin": "a-model-cannot-hold-the-master-hostage"
+  },
+  {
+   "lane": "handoff-plugin",
+   "text": "Seeing brief_write succeed, the plugin marks the session briefed; when the turn ends it compacts.",
+   "at": "plugins/handoff/logic.ts:130@3d13c64",
+   "reads": [],
+   "writes": []
+  },
+  {
+   "lane": "handoff-plugin",
+   "text": "Inside the compaction hook the journal first saves a raw excerpt of recent turns.",
+   "at": "plugins/handoff/index.ts:89@3d13c64",
+   "reads": [],
+   "writes": [
+    "journal"
+   ],
+   "pin": "journal-entries-are-append-only"
+  },
+  {
+   "lane": "store-server-and-cli",
+   "text": "The plugin runs `coordlite handoff`: the old session row ends with its brief, the next opens.",
+   "at": "store/coordlite/views.py:769@3d13c64",
+   "reads": [],
+   "writes": [
+    "session.ended_at",
+    "session.brief_node_id",
+    "session.started_at"
+   ]
+  },
+  {
+   "lane": "store-server-and-cli",
+   "text": "The CLI builds the boot packet from the store: brief, plan, lint, recent writes, journal backlog, the human's profile, the index.",
+   "at": "store/coordlite/__main__.py:19@3d13c64",
+   "reads": [
+    "node",
+    "change",
+    "journal",
+    "learner_card"
+   ],
+   "writes": []
+  },
+  {
+   "lane": "handoff-plugin",
+   "text": "The plugin replaces OpenCode's summary with the boot packet: same session id and title, so peers still reach it.",
+   "at": "plugins/handoff/logic.ts:154@3d13c64",
+   "reads": [],
+   "writes": [],
+   "pin": "replace-the-compaction-summary-instead-of-starting-a-new-ses"
+  },
+  {
+   "lane": "handoff-plugin",
+   "text": "On the successor's first step, if the context is still over the threshold, handoffs stop for this session.",
+   "at": "plugins/handoff/logic.ts:107-109@3d13c64",
+   "reads": [],
+   "writes": [],
+   "pin": "a-handoff-cannot-loop"
+  }
+ ]
+}

@@ -1,0 +1,77 @@
+{
+ "key": "a-worker-records-a-decision-the-master-finds-out",
+ "title": "A worker records a decision; the master finds out",
+ "domain": "Store",
+ "trigger": "a worker decides something while the master is busy elsewhere, and nobody sends a message",
+ "steps": [
+  {
+   "lane": "worker-or-subagent",
+   "text": "Calls node_create (kind decision) with its actor name.",
+   "at": "store/coordlite/server.py:137@3d13c64",
+   "reads": [],
+   "writes": []
+  },
+  {
+   "lane": "store-server-and-cli",
+   "text": "The worker's own MCP server validates the write and opens a transaction.",
+   "at": "store/coordlite/views.py:87@3d13c64",
+   "reads": [],
+   "writes": []
+  },
+  {
+   "lane": "sqlite-store",
+   "text": "BEGIN IMMEDIATE takes the write lock: any other session's write waits (busy_timeout), so writes are serial.",
+   "at": "store/coordlite/db.py:241@3d13c64",
+   "reads": [],
+   "writes": []
+  },
+  {
+   "lane": "sqlite-store",
+   "text": "The node row is inserted, created_by = the worker.",
+   "at": "store/coordlite/db.py:315@3d13c64",
+   "reads": [],
+   "writes": [
+    "node"
+   ]
+  },
+  {
+   "lane": "sqlite-store",
+   "text": "The same transaction writes an attributed change row.",
+   "at": "store/coordlite/db.py:373@3d13c64",
+   "reads": [],
+   "writes": [
+    "change.at",
+    "change.actor",
+    "change.node_id",
+    "change.what"
+   ]
+  },
+  {
+   "lane": "master-session",
+   "text": "Later, the master calls changes_since with the `now` from its last call.",
+   "at": "store/coordlite/server.py:121@3d13c64",
+   "reads": [],
+   "writes": []
+  },
+  {
+   "lane": "store-server-and-cli",
+   "text": "The master's own server reads change rows after that time: the worker's write is visible because both connect to the same file.",
+   "at": "store/coordlite/views.py:73@3d13c64",
+   "reads": [
+    "change.at",
+    "change.actor",
+    "change.what"
+   ],
+   "writes": []
+  },
+  {
+   "lane": "master-session",
+   "text": "It opens the new node with node_get and acts on it.",
+   "at": "store/coordlite/server.py:93@3d13c64",
+   "reads": [
+    "node"
+   ],
+   "writes": []
+  }
+ ]
+}

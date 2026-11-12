@@ -1,0 +1,75 @@
+{
+ "key": "a-quiz-answer-moves-your-memory",
+ "title": "A quiz answer moves your memory",
+ "domain": "Learner layer",
+ "trigger": "you run /quiz in the morning",
+ "steps": [
+  {
+   "lane": "master-session",
+   "text": "learn_queue picks due nodes, then the frontier of the fog.",
+   "at": "store/coordlite/learn.py:107@3d13c64",
+   "reads": [
+    "learner_card",
+    "node",
+    "edge"
+   ],
+   "writes": []
+  },
+  {
+   "lane": "worker-or-subagent",
+   "text": "A background subagent reads the code and writes each question with its private key.",
+   "at": "store/coordlite/learn.py:137@3d13c64",
+   "reads": [],
+   "writes": [
+    "learner_question"
+   ],
+   "pin": "the-quiz-is-closed-book"
+  },
+  {
+   "lane": "human",
+   "text": "You answer, with a confidence from 1 to 4, before seeing anything else.",
+   "at": "skills/quiz/SKILL.md:29@029cb0b",
+   "reads": [],
+   "writes": []
+  },
+  {
+   "lane": "master-session",
+   "text": "Only then is the key fetched, and the answer graded against it.",
+   "at": "store/coordlite/learn.py:155@3d13c64",
+   "reads": [
+    "learner_question.key"
+   ],
+   "writes": []
+  },
+  {
+   "lane": "store-server-and-cli",
+   "text": "FSRS moves the node's card: the verdict and your confidence become the rating.",
+   "at": "store/coordlite/learn.py:187@3d13c64",
+   "reads": [],
+   "writes": [
+    "learner_card.card",
+    "learner_card.due",
+    "learner_card.level"
+   ]
+  },
+  {
+   "lane": "sqlite-store",
+   "text": "The answer is appended to the review log, which can never be edited.",
+   "at": "store/coordlite/learn.py:202@3d13c64",
+   "reads": [],
+   "writes": [
+    "learner_review"
+   ]
+  },
+  {
+   "lane": "store-server-and-cli",
+   "text": "Every later boot packet carries a line on what you know, for agents to calibrate to.",
+   "at": "store/coordlite/__main__.py:57@3d13c64",
+   "reads": [
+    "learner_card"
+   ],
+   "writes": [],
+   "pin": "learner-data-lives-in-the-store-outside-the-graph"
+  }
+ ]
+}

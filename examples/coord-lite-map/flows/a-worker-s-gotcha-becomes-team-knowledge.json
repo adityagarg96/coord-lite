@@ -1,0 +1,91 @@
+{
+ "key": "a-worker-s-gotcha-becomes-team-knowledge",
+ "title": "A worker's gotcha becomes team knowledge",
+ "domain": "Journal and compile",
+ "trigger": "a worker hits a gotcha and keeps working",
+ "steps": [
+  {
+   "lane": "handoff-plugin",
+   "text": "At the end of a turn, after ~150k tokens of growth since its last entry, the plugin flushes.",
+   "at": "plugins/handoff/journal.ts:117@3d13c64",
+   "reads": [],
+   "writes": []
+  },
+  {
+   "lane": "worker-or-subagent",
+   "text": "The worker's own model writes a five-section entry (session.generate adds no turn).",
+   "at": "plugins/handoff/journal.ts:120@3d13c64",
+   "reads": [],
+   "writes": []
+  },
+  {
+   "lane": "store-server-and-cli",
+   "text": "The plugin appends it with `coordlite journal`.",
+   "at": "store/coordlite/views.py:585@3d13c64",
+   "reads": [],
+   "writes": [
+    "journal.at",
+    "journal.actor",
+    "journal.kind",
+    "journal.body"
+   ],
+   "pin": "journal-entries-are-append-only"
+  },
+  {
+   "lane": "handoff-plugin",
+   "text": "When 8 entries are pending, or once a day, the plugin asks the master to compile.",
+   "at": "plugins/handoff/journal.ts:86-96@3d13c64",
+   "reads": [],
+   "writes": []
+  },
+  {
+   "lane": "master-session",
+   "text": "The master starts knowledge-compile in a background subagent, which loads the backlog.",
+   "at": "store/coordlite/server.py:223@3d13c64",
+   "reads": [
+    "journal.body",
+    "journal.compiled_at"
+   ],
+   "writes": []
+  },
+  {
+   "lane": "worker-or-subagent",
+   "text": "The compiler checks the claim at HEAD and writes or edits a lesson under the right concept.",
+   "at": "store/coordlite/views.py:87@3d13c64",
+   "reads": [],
+   "writes": [
+    "node"
+   ],
+   "pin": "a-proposal-never-becomes-a-fact"
+  },
+  {
+   "lane": "worker-or-subagent",
+   "text": "It records a receipt on each node it touched.",
+   "at": "store/coordlite/views.py:264@3d13c64",
+   "reads": [],
+   "writes": [
+    "receipt"
+   ],
+   "pin": "receipts-are-append-only"
+  },
+  {
+   "lane": "worker-or-subagent",
+   "text": "It marks the entries compiled, naming the nodes they went into.",
+   "at": "store/coordlite/views.py:603@3d13c64",
+   "reads": [],
+   "writes": [
+    "journal.compiled_at",
+    "journal.compiled_into"
+   ]
+  },
+  {
+   "lane": "handoff-plugin",
+   "text": "The next session to start gets the knowledge index, now including the lesson, in its system prompt.",
+   "at": "plugins/handoff/journal.ts:147@3d13c64",
+   "reads": [
+    "node"
+   ],
+   "writes": []
+  }
+ ]
+}

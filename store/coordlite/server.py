@@ -10,7 +10,7 @@ import time
 
 from mcp.server.mcpserver import MCPServer
 
-from . import learn, views
+from . import learn, sysmap, views
 from .db import DB_PATH, connect
 
 MAX_ROWS = 200
@@ -296,6 +296,22 @@ def learner_profile(node_id: int | None = None, limit: int = 8) -> str:
     explaining part of the system to them, and calibrate: start from what they know, spell out what they don't.
     Never use it to hold information back."""
     return _j(learn.profile, con(), node_id, limit)
+
+
+# ---------------------------------------------------------------- the system map (sysmap.py, storyboard.py)
+
+@mcp.tool()
+def flows_touching(paths: list) -> str:
+    """Flows on the system storyboard with a step citing any of these repo-relative file paths, with the step
+    numbers. After a PR (ingest-pr), every flow listed needs those steps re-traced at the new head."""
+    return _j(sysmap.flows_touching, con(), paths)
+
+
+@mcp.tool()
+def flow_check(actor: str, flow_id: int, step: int, verdict: str, note: str = "") -> str:
+    """A second reader's verdict on one flow step's CLAIM, read against the code: confirmed | wrong | unclear, with
+    a note (what is actually true, for wrong). Refused if you traced the flow: a check by the author is not a check."""
+    return _j(sysmap.check_step, con(), flow_id, step, verdict, note, actor)
 
 
 def main():

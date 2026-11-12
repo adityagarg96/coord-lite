@@ -412,7 +412,7 @@ def plan_lint(con, root_id: int) -> list[dict] | None:
             links[i].add(ref); links.setdefault(ref, set()).add(i)
     for i in order[1:]:
         n = nodes[i]
-        if n["kind"] == "concept" and open_(n) and len(links.get(i, set()) - {i}) < 2:
+        if n["kind"] == "concept" and open_(n) and not n["attrs"].get("map") and len(links.get(i, set()) - {i}) < 2:
             out.append({"node_id": i, "check": "concept_underlinked",
                         "message": f"concept #{i} links to {len(links.get(i, set()) - {i})} node(s); a map node needs 2+ (#refs in its body or edges)"})
     for e in edges:
@@ -441,7 +441,7 @@ def _words(title: str) -> set[str]:
 def _flagged_imported(n: dict) -> bool:
     a = json.loads(n["attrs"] or "{}") if isinstance(n["attrs"], str) else (n["attrs"] or {})
     key = n.get("source_key") or ""
-    return bool((key and not key.startswith("brief:")) or a.get("source") or a.get("imported"))
+    return bool((key and not key.startswith(("brief:", "map:"))) or a.get("source") or a.get("imported"))
 
 
 def imported_ids(con, rows: dict | None = None) -> set[int]:
@@ -530,7 +530,7 @@ def store_lint(con, stale_days: int = 14, proposed_budget: int = 15, include_imp
         if a.get("to_verify"):
             out.append({"node_id": i, "check": "unverified_claims",
                         "message": f"#{i} carries {len(a['to_verify'])} unverified claim(s) from the journal: check them against the code, then fold in or drop"})
-        if n["kind"] == "concept" and n["parent_id"] is not None:
+        if n["kind"] == "concept" and n["parent_id"] is not None and not a.get("map"):
             body = con.execute("SELECT body FROM node WHERE id=?", (i,)).fetchone()["body"] or ""
             if len(body.split()) < 12:
                 out.append({"node_id": i, "check": "concept_sparse",

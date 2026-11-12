@@ -1,0 +1,115 @@
+[
+ {
+  "key": "receipts-are-append-only",
+  "title": "Receipts are append-only",
+  "body": "No receipt row is ever updated or deleted once written.",
+  "enforced_by": "db",
+  "breaks_if": "any code path UPDATEs or DELETEs a receipt: the trigger aborts the statement",
+  "evidence": [
+   "store/coordlite/db.py:84@dcaa879",
+   "store/coordlite/db.py:86@dcaa879"
+  ],
+  "guards": [
+   "receipt"
+  ]
+ },
+ {
+  "key": "only-a-receipt-moves-touched-at",
+  "title": "Only a receipt moves touched_at",
+  "body": "Editing a node is not progress: touched_at changes only when a receipt is added.",
+  "enforced_by": "code",
+  "breaks_if": "a new write path sets touched_at directly, and stale work looks fresh to the lint",
+  "evidence": [
+   "store/coordlite/db.py:357@dcaa879",
+   "store/coordlite/db.py:367@dcaa879"
+  ],
+  "guards": [
+   "node"
+  ]
+ },
+ {
+  "key": "a-dropped-node-carries-its-reason",
+  "title": "A dropped node carries its reason",
+  "body": "A node in state dropped always has why_dropped.",
+  "enforced_by": "db",
+  "breaks_if": "a write sets state=dropped without why_dropped: the CHECK constraint rejects it",
+  "evidence": [
+   "store/coordlite/db.py:57@dcaa879"
+  ],
+  "guards": [
+   "node"
+  ]
+ },
+ {
+  "key": "an-old-binary-never-opens-a-newer-store",
+  "title": "An old binary never opens a newer store",
+  "body": "A coordlite whose SCHEMA_VERSION is below the store's user_version refuses to open it, before touching anything.",
+  "enforced_by": "code",
+  "breaks_if": "the version check is removed or SCHEMA_VERSION is not bumped with a breaking change, and an old binary fails on a CHECK constraint mid-session",
+  "evidence": [
+   "store/coordlite/db.py:221@dcaa879"
+  ],
+  "guards": []
+ },
+ {
+  "key": "a-model-cannot-hold-the-master-hostage",
+  "title": "A model cannot hold the master hostage",
+  "body": "If the master is asked for a brief and two turns end without brief_write, the plugin hands off anyway with the old brief.",
+  "enforced_by": "code",
+  "breaks_if": "the turn counter is removed: a model that ignores the HANDOFF prompt keeps the session growing until it fails",
+  "evidence": [
+   "plugins/handoff/logic.ts:139@dcaa879"
+  ],
+  "guards": []
+ },
+ {
+  "key": "a-handoff-cannot-loop",
+  "title": "A handoff cannot loop",
+  "body": "If the context is still over the threshold on the first step after a handoff, handoffs are disabled for that session.",
+  "enforced_by": "code",
+  "breaks_if": "the boot packet alone exceeds the threshold and handoffs fire on every step",
+  "evidence": [
+   "plugins/handoff/logic.ts:107@dcaa879",
+   "plugins/handoff/logic.ts:109@dcaa879"
+  ],
+  "guards": []
+ },
+ {
+  "key": "journal-entries-are-append-only",
+  "title": "Journal entries are append-only",
+  "body": "A journal entry's body, author and time never change and it is never deleted; only its compiled markers are set later.",
+  "enforced_by": "db",
+  "breaks_if": "something rewrites an entry: the trigger aborts it",
+  "evidence": [
+   "store/coordlite/db.py:128@dcaa879",
+   "store/coordlite/db.py:130@dcaa879"
+  ],
+  "guards": [
+   "journal"
+  ]
+ },
+ {
+  "key": "a-proposal-never-becomes-a-fact",
+  "title": "A proposal never becomes a fact",
+  "body": "What a session suggested but did not decide becomes a PROPOSED decision with an owner, never a sentence in a concept body.",
+  "enforced_by": "convention",
+  "breaks_if": "the compiling model reads 'I'd opt for X' as 'X is used' and writes it into a concept body (seen live with a free model)",
+  "evidence": [
+   "skills/knowledge-compile/SKILL.md:16@dcaa879"
+  ],
+  "guards": []
+ },
+ {
+  "key": "the-quiz-is-closed-book",
+  "title": "The quiz is closed book",
+  "body": "The quiz session never reads a quiz node's content or its answer key before the human has answered; questions are prepared by a background subagent.",
+  "enforced_by": "convention",
+  "breaks_if": "the quiz agent calls node_get or learn_key early, and the answer is on the human's screen",
+  "evidence": [
+   "skills/quiz/SKILL.md:11@dcaa879"
+  ],
+  "guards": [
+   "learner_question"
+  ]
+ }
+]

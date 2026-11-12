@@ -34,14 +34,19 @@ beats add, supersede rather than contradict.
      key): an `invariant` node under its concept with `attrs.enforced_by`, `attrs.breaks_if` and
      `attrs.evidence` (`path:line@<head sha>`).
    - A gotcha or failed approach the review surfaced: a `lesson` node under the concept.
-   - A requirement this PR advances: add the receipt (step 5) and tell its owner with `peers send`. Mark it
+   - A requirement this PR advances: add the receipt (step 6) and tell its owner with `peers send`. Mark it
      `done` only if its exit test now passes, and say how you checked.
    Leave out what doesn't change our understanding: renames, formatting, dependency bumps, test-only churn.
 
-5. **Record evidence.** On every node you created or changed, `receipt_add` with source `pr`, a payload of
+5. **Keep the storyboard true.** `flows_touching(<the PR's changed file paths>)` lists every flow with a step citing
+   those files. For each, re-read those steps at the new head and re-trace them with the `trace-flow` skill (same
+   flow key, so it updates in place; new `path:line@<head sha>`). If the PR changes what a step does, the step's
+   text changes too; if it adds a path a flow should now take, add the step. Say which flows you re-traced.
+
+6. **Record evidence.** On every node you created or changed, `receipt_add` with source `pr`, a payload of
    `{url, number, author, head_sha, merged_at}`, and `dedupe_key` `pr:<owner/repo>#<number>@<head_sha>`.
 
-6. **Check and report.** `plan_lint` the concept root (and the plan root if requirements moved), fix what you
+7. **Check and report.** `plan_lint` the concept root (and the plan root if requirements moved), fix what you
    introduced, then reply with: nodes updated (ids), superseded (old → new), created (ids), decisions recorded,
    requirements touched, and what you deliberately skipped. If the master should know, `peers send` it the same
    summary.

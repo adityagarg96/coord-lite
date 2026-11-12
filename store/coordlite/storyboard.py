@@ -73,6 +73,42 @@ def _line_ok(repo: Path, at: str) -> bool | None:
     return last <= len(text.splitlines())
 
 
+def _drift(repo: Path, at: str) -> tuple[str | None, str | None]:
+    """Has the code a pinned step cites moved on since it was traced? Compares the cited lines at the step's sha with
+    the same file at the checkout's HEAD: ('current', None) when they still read the same at the same lines,
+    ('moved', 'path:line') when the same text sits elsewhere in the file, ('changed', None) when it is gone (edited,
+    or the file was moved or deleted), and (None, None) when it cannot be told (no sha, no repo, a bad pointer).
+    A valid pointer only proves the line existed; drift says whether the step still describes the code."""
+    if not repo or not at or "@" not in at or ":" not in at:
+        return None, None
+    loc, _, sha = at.partition("@")
+    path, _, lines = loc.partition(":")
+    try:
+        nums = [int(x) for x in lines.split("-") if x.strip()]
+        first, last = nums[0], nums[-1]
+    except (ValueError, IndexError):
+        return None, None
+    checkout, rel = _resolve(repo, path)
+    then = _git_show(str(checkout), sha, rel)
+    if then is None:
+        return None, None
+    cited = [x.strip() for x in then.splitlines()[first - 1:last]]
+    if not any(cited):
+        return None, None
+    now = _git_show(str(checkout), "HEAD", rel)
+    if now is None:
+        return "changed", None
+    head = [x.strip() for x in now.splitlines()]
+    if head[first - 1:last] == cited:
+        return "current", None
+    n = len(cited)
+    hits = [i + 1 for i in range(len(head) - n + 1) if head[i:i + n] == cited]
+    if hits:
+        best = min(hits, key=lambda i: abs(i - first))
+        return "moved", f"{path}:{best}" + (f"-{best + n - 1}" if n > 1 else "")
+    return "changed", None
+
+
 def _table_of(ref: str, tables: list[str]) -> str | None:
     """The table a `table` / `table.column` ref names: the longest known table it equals or starts with."""
     hits = [t for t in tables if ref == t or ref.startswith(t + ".")]
@@ -119,6 +155,8 @@ def board_data(con, repo: str | None = None, root: int | None = None) -> dict:
 
     def group(n):
         t = n["attrs"]["entity"]
+        if n["attrs"].get("layer"):
+            return n["attrs"]["layer"]
         if "." in t:
             return t.split(".", 1)[0]
         p = rows.get(n["parent_id"])
@@ -131,12 +169,16 @@ def board_data(con, repo: str | None = None, root: int | None = None) -> dict:
     domain_ids = sorted({n["parent_id"] for n in flow_nodes if n["parent_id"] in rows})
     order = {d: i for i, d in enumerate(domain_ids)}
     flows, broken, checked, warnings = [], 0, 0, []
+    drifted = {"moved": 0, "changed": 0}
     for n in sorted(flow_nodes, key=lambda n: (order.get(n["parent_id"], len(order)), n["id"])):
         steps, touched, unknown = [], set(), []
         for s in n["attrs"]["steps"]:
             ok = _line_ok(repo_path, s.get("at", ""))
             broken += ok is False
             checked += ok is not None
+            drift, now_at = _drift(repo_path, s.get("at", "")) if ok else (None, None)
+            if drift in drifted:
+                drifted[drift] += 1
             for ref in (s.get("reads") or []) + (s.get("writes") or []):
                 t = _table_of(ref, names)
                 if t:
@@ -145,14 +187,15 @@ def board_data(con, repo: str | None = None, root: int | None = None) -> dict:
                     unknown.append(ref)
             if s.get("lane") not in lane_ids:
                 warnings.append(f"#{n['id']} '{n['title']}' has a step on no known lane ({s.get('lane')})")
-            steps.append({**s, "ok": ok, "pin": card(s.get("pin")) if s.get("pin") else None})
+            steps.append({**s, "ok": ok, "drift": drift, "now_at": now_at,
+                          "pin": card(s.get("pin")) if s.get("pin") else None})
         flows.append({**card(n["id"]), "trigger": n["attrs"].get("trigger", ""), "steps": steps,
                       "domain": n["parent_id"] if n["parent_id"] in order else None,
                       "tables": [e["id"] for e in entities if e["id"] in touched], "unknown": unknown})
     if len(lanes) > MAX_LANES:
         warnings.insert(0, f"{len(lanes)} lanes: past {MAX_LANES} the stage stops being readable, merge components")
     return {
-        "generated": now_iso()[:16].replace("T", " "), "checked": bool(repo_path), "broken": broken,
+        "generated": now_iso()[:16].replace("T", " "), "checked": bool(repo_path), "broken": broken, "drifted": drifted,
         "pointers": checked, "steps": sum(len(f["steps"]) for f in flows), "warnings": warnings, "open_all": len(entities) <= OPEN_ALL_TABLES,
         "domains": [{**card(d), "flows": sum(f["domain"] == d for f in flows)} for d in domain_ids],
         "lanes": [{**card(n["id"]), "invariants": [card(p["id"]) for p in pins
@@ -242,7 +285,9 @@ function board(){const svg=$("board");svg.textContent="";const f=D.flows[fi];con
   const cur=i===si,past=i<si;S("circle",{r:12,fill:cur?V("--hi"):past?V("--ink"):V("--panel"),stroke:cur?V("--hi"):past?V("--ink"):V("--faint"),"stroke-width":1.6},g);
   const t=S("text",{"text-anchor":"middle",y:1},g);t.textContent=i+1;t.style.fill=cur||past?V("--bg"):V("--muted");t.style.fontWeight="600";
   if(s.pin){const k=s.pin.kind==="invariant";S("rect",{x:-4,y:-27,width:8,height:8,rx:k?0:1.5,transform:k?"rotate(45 0 -23)":"",fill:cur?V("--ink"):V("--faint")},g)}
-  if(s.ok===false)S("circle",{r:16,fill:"none",stroke:V("--hi"),"stroke-dasharray":"3 3"},g);
+  if(s.ok===false||s.drift==="changed")S("circle",{r:16,fill:"none",stroke:V("--hi"),"stroke-dasharray":"3 3"},g);
+  else if(s.drift==="moved")S("circle",{r:16,fill:"none",stroke:V("--faint"),"stroke-dasharray":"2 3"},g);
+  if(s.check)S("text",{x:11,y:-13,"font-size":"10"},g).textContent=s.check.verdict==="confirmed"?"✓":s.check.verdict==="wrong"?"✗":"?";
   g.onclick=()=>{si=i;stop();render()}})}
 function chips(parent,label,list,cls){if(!list||!list.length)return;parent.append(el("div","k",label));const d=el("div");list.forEach(c=>d.append(el("span","chip"+(cls?" "+cls:""),c)));parent.append(d)}
 function pinCard(parent,p){const box=el("div","pin");box.append(el("b",null,(p.kind==="invariant"?"◆ invariant · ":"■ decision · ")+p.title));
@@ -252,7 +297,10 @@ function pinCard(parent,p){const box=el("div","pin");box.append(el("b",null,(p.k
  if(p.evidence)box.append(el("p","mono",[].concat(p.evidence).join("  ")));parent.append(box)}
 function detail(){const d=$("detail");d.textContent="";const f=D.flows[fi];if(!f){d.append(el("p","muted","Pick a flow."));return}
  const s=f.steps[si];const lane=D.lanes[laneIx.get(s.lane)];d.append(el("b",null,`Step ${si+1} of ${f.steps.length} · ${lane?lane.title:"?"}`));
- d.append(el("p",null,s.text));const at=el("div","mono",s.at||"");if(s.ok===false)at.append(el("span","bad","  pointer broken at this sha"));d.append(at);
+ d.append(el("p",null,s.text));const at=el("div","mono",s.at||"");if(s.ok===false)at.append(el("span","bad","  pointer broken at this sha"));
+ else if(s.drift==="changed")at.append(el("span","bad","  the code here has changed since this was traced: re-trace"));
+ else if(s.drift==="moved")at.append(el("span","muted","  same code now at "+s.now_at));d.append(at);
+ if(s.check)d.append(el("div",s.check.verdict==="wrong"?"bad":"muted",`second reader (${s.check.by}, ${String(s.check.at||"").slice(0,10)}): ${s.check.verdict}`+(s.check.note?" · "+s.check.note:"")));
  chips(d,"reads",s.reads);chips(d,"writes",s.writes,"w");if(s.pin)pinCard(d,s.pin)}
 function detailFor(n){stop();const d=$("detail");d.textContent="";d.append(el("b",null,n.title));if(showMind)d.append(el("div","muted","you: "+n.mind));
  if(n.body)d.append(el("p",null,n.body));(n.invariants||[]).forEach(p=>pinCard(d,p))}
@@ -288,7 +336,10 @@ $("quiz").onclick=()=>{const f=D.flows[fi];if(!f)return;const ids=[f.id,...f.ste
  const cmd="/quiz on "+ids.map(i=>"#"+i).join(" ");(navigator.clipboard?navigator.clipboard.writeText(cmd):Promise.reject()).then(()=>$("copied").textContent="copied: "+cmd,()=>$("copied").textContent=cmd)};
 const ptr=!D.checked?"pointers not checked":D.broken?`${D.broken} of ${D.pointers} pointers broken`:
  D.pointers===D.steps?`every pointer checked (${D.pointers}, 0 broken)`:`${D.pointers} of ${D.steps} pointers checked, 0 broken`;
-$("meta").textContent=`${D.flows.length} flows in ${D.domains.length} domains · ${D.lanes.length} components · ${D.entities.length} tables · ${ptr} · ${D.generated} UTC`;
+const dr=D.drifted||{};const drift=(dr.changed?` · ${dr.changed} steps changed since traced`:"")+(dr.moved?` · ${dr.moved} moved`:"");
+const nck=D.flows.reduce((a,f)=>a+f.steps.filter(s=>s.check).length,0),nbad=D.flows.reduce((a,f)=>a+f.steps.filter(s=>s.check&&s.check.verdict==="wrong").length,0);
+const chk=nck?` · ${nck} steps second-read${nbad?`, ${nbad} wrong`:""}`:"";
+$("meta").textContent=`${D.flows.length} flows in ${D.domains.length} domains · ${D.lanes.length} components · ${D.entities.length} tables · ${ptr}${drift}${chk} · ${D.generated} UTC`;
 if(D.warnings.length){const w=el("span","bad",D.warnings.length+(D.warnings.length>1?" warnings: ":" warning: ")+D.warnings.join(" · "));$("meta").after(w)}
 render();
 </script></body></html>
