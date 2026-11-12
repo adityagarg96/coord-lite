@@ -7,33 +7,33 @@
   {
    "lane": "handoff-plugin",
    "text": "After a step, the plugin sees the context is over the threshold.",
-   "at": "plugins/handoff/logic.ts:115@3d13c64",
+   "at": "plugins/handoff/logic.ts:115@83a5621",
    "reads": [],
    "writes": [],
    "check": {
     "by": "verifier",
     "at": "2026-11-12T02:13:32.588428Z",
     "verdict": "confirmed",
-    "note": "onStepEnded, coordinator only, returns unless idle and tokens >= threshold, logic.ts:102-115@3d13c64."
+    "note": "onStepEnded, coordinator only, returns unless idle and tokens >= threshold, logic.ts:102-115@83a5621."
    }
   },
   {
    "lane": "handoff-plugin",
    "text": "It queues the HANDOFF prompt into the master's session.",
-   "at": "plugins/handoff/logic.ts:121@3d13c64",
+   "at": "plugins/handoff/logic.ts:121@83a5621",
    "reads": [],
    "writes": [],
    "check": {
     "by": "verifier",
     "at": "2026-11-12T02:13:32.588773Z",
     "verdict": "confirmed",
-    "note": "deps.prompt(handoffText) logic.ts:121@3d13c64 -> session.prompt delivery queue (index.ts:55)."
+    "note": "deps.prompt(handoffText) logic.ts:121@83a5621 -> session.prompt delivery queue (index.ts:55)."
    }
   },
   {
    "lane": "master-session",
    "text": "The master rewrites its brief: purpose, happened, open, next, ruled out.",
-   "at": "store/coordlite/views.py:742@3d13c64",
+   "at": "store/coordlite/views.py:742@83a5621",
    "reads": [],
    "writes": [
     "node.body",
@@ -43,13 +43,13 @@
     "by": "verifier",
     "at": "2026-11-12T02:13:32.589126Z",
     "verdict": "confirmed",
-    "note": "brief_write rewrites the five slots into node.body/attrs of brief:<scope> (insert first time), views.py:742-755@3d13c64; also logs change."
+    "note": "brief_write rewrites the five slots into node.body/attrs of brief:<scope> (insert first time), views.py:742-755@83a5621; also logs change."
    }
   },
   {
    "lane": "handoff-plugin",
    "text": "Seeing brief_write succeed, the plugin marks the session briefed and compacts when the turn ends. If two turns end with no brief, it compacts anyway with the old brief.",
-   "at": "plugins/handoff/logic.ts:130-141@3d13c64",
+   "at": "plugins/handoff/logic.ts:130-141@83a5621",
    "reads": [],
    "writes": [],
    "pin": "a-model-cannot-hold-the-master-hostage",
@@ -57,13 +57,13 @@
     "by": "verifier",
     "at": "2026-11-12T02:13:32.589490Z",
     "verdict": "confirmed",
-    "note": "onToolDone -> briefed (logic.ts:130); onTurnEnded compacts if briefed (136) or after 2 turns still briefing (139-141)@3d13c64. Hostage pin bites here."
+    "note": "onToolDone -> briefed (logic.ts:130); onTurnEnded compacts if briefed (136) or after 2 turns still briefing (139-141)@83a5621. Hostage pin bites here."
    }
   },
   {
    "lane": "handoff-plugin",
    "text": "Inside the compaction hook, if at least 20k tokens of work since the last flush would otherwise be lost (minRawTokens), the journal saves a raw excerpt of recent turns first; a failed write is logged, not fatal.",
-   "at": "plugins/handoff/journal.ts:138-141@3d13c64",
+   "at": "plugins/handoff/journal.ts:138-141@83a5621",
    "reads": [],
    "writes": [
     "journal"
@@ -73,13 +73,13 @@
     "by": "verifier",
     "at": "2026-11-12T02:13:32.589906Z",
     "verdict": "confirmed",
-    "note": "onCompaction runs first (index.ts:89); writes precompact excerpt only if tokens - lastJournal >= minRawTokens (20000), failure logged, journal.ts:138-141@3d13c64; journaling agents only."
+    "note": "onCompaction runs first (index.ts:89); writes precompact excerpt only if tokens - lastJournal >= minRawTokens (20000), failure logged, journal.ts:138-141@83a5621; journaling agents only."
    }
   },
   {
    "lane": "store-server-and-cli",
    "text": "The plugin runs `coordlite handoff`: the old session row ends with its brief, the next opens.",
-   "at": "store/coordlite/views.py:769@3d13c64",
+   "at": "store/coordlite/views.py:769@83a5621",
    "reads": [],
    "writes": [
     "session.ended_at",
@@ -90,13 +90,13 @@
     "by": "verifier",
     "at": "2026-11-12T02:13:32.590387Z",
     "verdict": "confirmed",
-    "note": "session_handoff views.py:769-777@3d13c64 (via __main__.py:104-105): ends open row (ended_at, ended_why, tokens_at_end, brief_node_id), opens successor (started_at)."
+    "note": "session_handoff views.py:769-777@83a5621 (via __main__.py:104-105): ends open row (ended_at, ended_why, tokens_at_end, brief_node_id), opens successor (started_at)."
    }
   },
   {
    "lane": "store-server-and-cli",
    "text": "The CLI builds the boot packet from the store: brief, plan, lint, recent writes, journal backlog, the human's profile, the index.",
-   "at": "store/coordlite/__main__.py:19@3d13c64",
+   "at": "store/coordlite/__main__.py:19@83a5621",
    "reads": [
     "node",
     "change",
@@ -108,13 +108,13 @@
     "by": "verifier",
     "at": "2026-11-12T02:13:32.590920Z",
     "verdict": "confirmed",
-    "note": "boot_packet __main__.py:19-63@3d13c64: brief, plan_render, store_lint, last 30 changes, journal_stats, profile_line, knowledge_index."
+    "note": "boot_packet __main__.py:19-63@83a5621: brief, plan_render, store_lint, last 30 changes, journal_stats, profile_line, knowledge_index."
    }
   },
   {
    "lane": "handoff-plugin",
    "text": "The plugin replaces OpenCode's summary with the boot packet: same session id and title, so peers still reach it.",
-   "at": "plugins/handoff/logic.ts:154@3d13c64",
+   "at": "plugins/handoff/logic.ts:154@83a5621",
    "reads": [],
    "writes": [],
    "pin": "replace-the-compaction-summary-instead-of-starting-a-new-ses",
@@ -122,13 +122,13 @@
     "by": "verifier",
     "at": "2026-11-12T02:13:32.591493Z",
     "verdict": "confirmed",
-    "note": "input.result = {summary: boot, tokens} logic.ts:154@3d13c64; falls back to OpenCode compaction on failure (156-157)."
+    "note": "input.result = {summary: boot, tokens} logic.ts:154@83a5621; falls back to OpenCode compaction on failure (156-157)."
    }
   },
   {
    "lane": "handoff-plugin",
    "text": "On the successor's first step, if the context is still over the threshold, handoffs stop for this session.",
-   "at": "plugins/handoff/logic.ts:107-109@3d13c64",
+   "at": "plugins/handoff/logic.ts:107-109@83a5621",
    "reads": [],
    "writes": [],
    "pin": "a-handoff-cannot-loop",
@@ -136,7 +136,7 @@
     "by": "verifier",
     "at": "2026-11-12T02:13:32.592200Z",
     "verdict": "confirmed",
-    "note": "fresh set in onCompaction (logic.ts:159); first step over threshold -> phase disabled, logic.ts:106-112@3d13c64, until the next compaction resets state (invariant body now says so)."
+    "note": "fresh set in onCompaction (logic.ts:159); first step over threshold -> phase disabled, logic.ts:106-112@83a5621, until the next compaction resets state (invariant body now says so)."
    }
   }
  ]

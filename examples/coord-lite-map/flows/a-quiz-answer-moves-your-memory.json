@@ -7,7 +7,7 @@
   {
    "lane": "master-session",
    "text": "learn_queue picks due nodes, then the frontier of the fog.",
-   "at": "store/coordlite/learn.py:107@3d13c64",
+   "at": "store/coordlite/learn.py:107@83a5621",
    "reads": [
     "learner_card",
     "learner_question",
@@ -19,13 +19,13 @@
     "by": "verifier",
     "at": "2026-11-12T02:13:32.575740Z",
     "verdict": "confirmed",
-    "note": "queue(): due cards least-retrievable first, then up to `new` frontier nodes, learn.py:107-122@3d13c64; reads learner_card, node (_candidates), edge (_frontier), learner_question (learn.py:126)."
+    "note": "queue(): due cards least-retrievable first, then up to `new` frontier nodes, learn.py:107-122@83a5621; reads learner_card, node (_candidates), edge (_frontier), learner_question (learn.py:126)."
    }
   },
   {
    "lane": "worker-or-subagent",
    "text": "A background subagent reads the code and writes each question with its private key.",
-   "at": "store/coordlite/learn.py:137@3d13c64",
+   "at": "store/coordlite/learn.py:137@83a5621",
    "reads": [],
    "writes": [
     "learner_question"
@@ -35,26 +35,26 @@
     "by": "verifier",
     "at": "2026-11-12T02:13:32.576641Z",
     "verdict": "confirmed",
-    "note": "prepare() inserts learner_question with prompt, private key, evidence (required), learn.py:149@3d13c64; background subagent reading code is the quiz-prepare skill. Closed-book pin (convention) names the background subagent."
+    "note": "prepare() inserts learner_question with prompt, private key, evidence (required), learn.py:149@83a5621; background subagent reading code is the quiz-prepare skill. Closed-book pin (convention) names the background subagent."
    }
   },
   {
    "lane": "human",
    "text": "You answer, with a confidence from 1 to 4, before seeing anything else.",
-   "at": "skills/quiz/SKILL.md:29@029cb0b",
+   "at": "skills/quiz/SKILL.md:29@9ecc008",
    "reads": [],
    "writes": [],
    "check": {
     "by": "verifier",
     "at": "2026-11-12T02:13:32.577056Z",
     "verdict": "confirmed",
-    "note": "skills/quiz/SKILL.md:29@029cb0b asks answer + confidence 1-4; closed book at SKILL.md:11. Convention."
+    "note": "skills/quiz/SKILL.md:29@9ecc008 asks answer + confidence 1-4; closed book at SKILL.md:11. Convention."
    }
   },
   {
    "lane": "master-session",
    "text": "Only then does the session fetch the key and grade the answer against it. This is a convention: learn_key itself does not check that the question was answered.",
-   "at": "store/coordlite/learn.py:155@3d13c64",
+   "at": "store/coordlite/learn.py:155@83a5621",
    "reads": [
     "learner_question.key"
    ],
@@ -63,13 +63,13 @@
     "by": "verifier",
     "at": "2026-11-12T02:13:32.577459Z",
     "verdict": "confirmed",
-    "note": "key() returns key+evidence with no answered_at check, learn.py:155-161@3d13c64; ordering is convention (quiz SKILL.md:11,35), as the step now says."
+    "note": "key() returns key+evidence with no answered_at check, learn.py:155-161@83a5621; ordering is convention (quiz SKILL.md:11,35), as the step now says."
    }
   },
   {
    "lane": "store-server-and-cli",
    "text": "FSRS moves the node's card: the verdict and your confidence become the rating.",
-   "at": "store/coordlite/learn.py:187@3d13c64",
+   "at": "store/coordlite/learn.py:187@83a5621",
    "reads": [],
    "writes": [
     "learner_card.card",
@@ -80,13 +80,13 @@
     "by": "verifier",
     "at": "2026-11-12T02:13:32.577912Z",
     "verdict": "confirmed",
-    "note": "rating_for(verdict, confidence) -> review_card; UPDATE/INSERT learner_card card, due, level (+reviews, lapses, last_verdict), learn.py:182-199@3d13c64. skipped/disputed move nothing."
+    "note": "rating_for(verdict, confidence) -> review_card; UPDATE/INSERT learner_card card, due, level (+reviews, lapses, last_verdict), learn.py:182-199@83a5621. skipped/disputed move nothing."
    }
   },
   {
    "lane": "sqlite-store",
    "text": "The answer is appended to the review log, which can never be edited.",
-   "at": "store/coordlite/learn.py:202@3d13c64",
+   "at": "store/coordlite/learn.py:202@83a5621",
    "reads": [],
    "writes": [
     "learner_review"
@@ -96,13 +96,13 @@
     "by": "verifier",
     "at": "2026-11-12T02:13:32.578461Z",
     "verdict": "confirmed",
-    "note": "INSERT learner_review learn.py:202@3d13c64; triggers abort UPDATE/DELETE, db.py:171-174@3d13c64 (same at dcaa879). Pin bites on the table."
+    "note": "INSERT learner_review learn.py:202@83a5621; triggers abort UPDATE/DELETE, db.py:171-174@83a5621 (same at be23b20). Pin bites on the table."
    }
   },
   {
    "lane": "store-server-and-cli",
    "text": "Every later boot packet carries a line on what you know, for agents to calibrate to.",
-   "at": "store/coordlite/__main__.py:57@3d13c64",
+   "at": "store/coordlite/__main__.py:57@83a5621",
    "reads": [
     "learner_card"
    ],
@@ -112,7 +112,7 @@
     "by": "verifier",
     "at": "2026-11-12T02:13:32.579237Z",
     "verdict": "confirmed",
-    "note": "boot_packet adds learn.profile_line, __main__.py:57-59@3d13c64; None until a card exists (learn.py:253-257). Reads learner_card (+node, learner_review). Decision pin fits."
+    "note": "boot_packet adds learn.profile_line, __main__.py:57-59@83a5621; None until a card exists (learn.py:253-257). Reads learner_card (+node, learner_review). Decision pin fits."
    }
   }
  ]

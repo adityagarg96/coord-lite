@@ -6,8 +6,8 @@
   "enforced_by": "db",
   "breaks_if": "any code path UPDATEs or DELETEs a receipt: the trigger aborts the statement",
   "evidence": [
-   "store/coordlite/db.py:84@dcaa879",
-   "store/coordlite/db.py:86@dcaa879"
+   "store/coordlite/db.py:84@be23b20",
+   "store/coordlite/db.py:86@be23b20"
   ],
   "guards": [
    "receipt"
@@ -20,8 +20,8 @@
   "enforced_by": "code",
   "breaks_if": "a new write path sets touched_at directly, and stale work looks fresh to the lint",
   "evidence": [
-   "store/coordlite/db.py:357@dcaa879",
-   "store/coordlite/db.py:367@dcaa879"
+   "store/coordlite/db.py:357@be23b20",
+   "store/coordlite/db.py:367@be23b20"
   ],
   "guards": [
    "node"
@@ -34,7 +34,7 @@
   "enforced_by": "db",
   "breaks_if": "a write sets state=dropped without why_dropped: the CHECK constraint rejects it",
   "evidence": [
-   "store/coordlite/db.py:57@dcaa879"
+   "store/coordlite/db.py:57@be23b20"
   ],
   "guards": [
    "node"
@@ -47,7 +47,7 @@
   "enforced_by": "code",
   "breaks_if": "the version check is removed or SCHEMA_VERSION is not bumped with a breaking change, and an old binary fails on a CHECK constraint mid-session",
   "evidence": [
-   "store/coordlite/db.py:221@dcaa879"
+   "store/coordlite/db.py:221@be23b20"
   ],
   "guards": []
  },
@@ -58,7 +58,7 @@
   "enforced_by": "code",
   "breaks_if": "the turn counter is removed: a model that ignores the HANDOFF prompt keeps the session growing until it fails",
   "evidence": [
-   "plugins/handoff/logic.ts:139@dcaa879"
+   "plugins/handoff/logic.ts:139@be23b20"
   ],
   "guards": []
  },
@@ -69,8 +69,8 @@
   "enforced_by": "code",
   "breaks_if": "the boot packet alone exceeds the threshold and handoffs fire on every step",
   "evidence": [
-   "plugins/handoff/logic.ts:107@dcaa879",
-   "plugins/handoff/logic.ts:109@dcaa879"
+   "plugins/handoff/logic.ts:107@be23b20",
+   "plugins/handoff/logic.ts:109@be23b20"
   ],
   "guards": []
  },
@@ -81,8 +81,8 @@
   "enforced_by": "db",
   "breaks_if": "something rewrites an entry: the trigger aborts it",
   "evidence": [
-   "store/coordlite/db.py:128@dcaa879",
-   "store/coordlite/db.py:130@dcaa879"
+   "store/coordlite/db.py:128@be23b20",
+   "store/coordlite/db.py:130@be23b20"
   ],
   "guards": [
    "journal"
@@ -95,7 +95,7 @@
   "enforced_by": "convention",
   "breaks_if": "the compiling model reads 'I'd opt for X' as 'X is used' and writes it into a concept body (seen live with a free model)",
   "evidence": [
-   "skills/knowledge-compile/SKILL.md:16@dcaa879"
+   "skills/knowledge-compile/SKILL.md:16@be23b20"
   ],
   "guards": []
  },
@@ -106,7 +106,7 @@
   "enforced_by": "convention",
   "breaks_if": "the quiz agent calls node_get or learn_key early, and the answer is on the human's screen",
   "evidence": [
-   "skills/quiz/SKILL.md:11@dcaa879"
+   "skills/quiz/SKILL.md:11@be23b20"
   ],
   "guards": [
    "learner_question"
@@ -119,7 +119,7 @@
   "enforced_by": "db",
   "breaks_if": "a code path rewrites or deletes a review: the trigger aborts it",
   "evidence": [
-   "store/coordlite/db.py:171-174@dcaa879"
+   "store/coordlite/db.py:171-174@be23b20"
   ],
   "guards": [
    "learner_review"
