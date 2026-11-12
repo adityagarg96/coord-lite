@@ -9,14 +9,26 @@
    "text": "After a step, the plugin sees the context is over the threshold.",
    "at": "plugins/handoff/logic.ts:115@3d13c64",
    "reads": [],
-   "writes": []
+   "writes": [],
+   "check": {
+    "by": "verifier",
+    "at": "2026-11-12T02:13:32.588428Z",
+    "verdict": "confirmed",
+    "note": "onStepEnded, coordinator only, returns unless idle and tokens >= threshold, logic.ts:102-115@3d13c64."
+   }
   },
   {
    "lane": "handoff-plugin",
    "text": "It queues the HANDOFF prompt into the master's session.",
    "at": "plugins/handoff/logic.ts:121@3d13c64",
    "reads": [],
-   "writes": []
+   "writes": [],
+   "check": {
+    "by": "verifier",
+    "at": "2026-11-12T02:13:32.588773Z",
+    "verdict": "confirmed",
+    "note": "deps.prompt(handoffText) logic.ts:121@3d13c64 -> session.prompt delivery queue (index.ts:55)."
+   }
   },
   {
    "lane": "master-session",
@@ -27,24 +39,42 @@
     "node.body",
     "node.attrs"
    ],
-   "pin": "a-model-cannot-hold-the-master-hostage"
+   "check": {
+    "by": "verifier",
+    "at": "2026-11-12T02:13:32.589126Z",
+    "verdict": "confirmed",
+    "note": "brief_write rewrites the five slots into node.body/attrs of brief:<scope> (insert first time), views.py:742-755@3d13c64; also logs change."
+   }
   },
   {
    "lane": "handoff-plugin",
-   "text": "Seeing brief_write succeed, the plugin marks the session briefed; when the turn ends it compacts.",
-   "at": "plugins/handoff/logic.ts:130@3d13c64",
+   "text": "Seeing brief_write succeed, the plugin marks the session briefed and compacts when the turn ends. If two turns end with no brief, it compacts anyway with the old brief.",
+   "at": "plugins/handoff/logic.ts:130-141@3d13c64",
    "reads": [],
-   "writes": []
+   "writes": [],
+   "pin": "a-model-cannot-hold-the-master-hostage",
+   "check": {
+    "by": "verifier",
+    "at": "2026-11-12T02:13:32.589490Z",
+    "verdict": "confirmed",
+    "note": "onToolDone -> briefed (logic.ts:130); onTurnEnded compacts if briefed (136) or after 2 turns still briefing (139-141)@3d13c64. Hostage pin bites here."
+   }
   },
   {
    "lane": "handoff-plugin",
-   "text": "Inside the compaction hook the journal first saves a raw excerpt of recent turns.",
-   "at": "plugins/handoff/index.ts:89@3d13c64",
+   "text": "Inside the compaction hook, if at least 20k tokens of work since the last flush would otherwise be lost (minRawTokens), the journal saves a raw excerpt of recent turns first; a failed write is logged, not fatal.",
+   "at": "plugins/handoff/journal.ts:138-141@3d13c64",
    "reads": [],
    "writes": [
     "journal"
    ],
-   "pin": "journal-entries-are-append-only"
+   "pin": "journal-entries-are-append-only",
+   "check": {
+    "by": "verifier",
+    "at": "2026-11-12T02:13:32.589906Z",
+    "verdict": "confirmed",
+    "note": "onCompaction runs first (index.ts:89); writes precompact excerpt only if tokens - lastJournal >= minRawTokens (20000), failure logged, journal.ts:138-141@3d13c64; journaling agents only."
+   }
   },
   {
    "lane": "store-server-and-cli",
@@ -55,7 +85,13 @@
     "session.ended_at",
     "session.brief_node_id",
     "session.started_at"
-   ]
+   ],
+   "check": {
+    "by": "verifier",
+    "at": "2026-11-12T02:13:32.590387Z",
+    "verdict": "confirmed",
+    "note": "session_handoff views.py:769-777@3d13c64 (via __main__.py:104-105): ends open row (ended_at, ended_why, tokens_at_end, brief_node_id), opens successor (started_at)."
+   }
   },
   {
    "lane": "store-server-and-cli",
@@ -67,7 +103,13 @@
     "journal",
     "learner_card"
    ],
-   "writes": []
+   "writes": [],
+   "check": {
+    "by": "verifier",
+    "at": "2026-11-12T02:13:32.590920Z",
+    "verdict": "confirmed",
+    "note": "boot_packet __main__.py:19-63@3d13c64: brief, plan_render, store_lint, last 30 changes, journal_stats, profile_line, knowledge_index."
+   }
   },
   {
    "lane": "handoff-plugin",
@@ -75,7 +117,13 @@
    "at": "plugins/handoff/logic.ts:154@3d13c64",
    "reads": [],
    "writes": [],
-   "pin": "replace-the-compaction-summary-instead-of-starting-a-new-ses"
+   "pin": "replace-the-compaction-summary-instead-of-starting-a-new-ses",
+   "check": {
+    "by": "verifier",
+    "at": "2026-11-12T02:13:32.591493Z",
+    "verdict": "confirmed",
+    "note": "input.result = {summary: boot, tokens} logic.ts:154@3d13c64; falls back to OpenCode compaction on failure (156-157)."
+   }
   },
   {
    "lane": "handoff-plugin",
@@ -83,7 +131,13 @@
    "at": "plugins/handoff/logic.ts:107-109@3d13c64",
    "reads": [],
    "writes": [],
-   "pin": "a-handoff-cannot-loop"
+   "pin": "a-handoff-cannot-loop",
+   "check": {
+    "by": "verifier",
+    "at": "2026-11-12T02:13:32.592200Z",
+    "verdict": "confirmed",
+    "note": "fresh set in onCompaction (logic.ts:159); first step over threshold -> phase disabled, logic.ts:106-112@3d13c64, until the next compaction resets state (invariant body now says so)."
+   }
   }
  ]
 }

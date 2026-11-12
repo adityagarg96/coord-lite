@@ -105,7 +105,7 @@ map: 6 lanes, 9 tables, 9 invariants, 4 flows (open its `board.html`, or rebuild
 `COORD_DB=<a new store file> python -m coordlite map-load examples/coord-lite-map` and the storyboard command).
 Skills: `map-system` bootstraps a project's map (tables from the schema by script, lanes the human approves, flows
 chosen from evidence), `trace-flow` traces one flow, `verify-flow` has a different session second-read each step's
-claim (`flow_check`; the tracer is refused), and `ingest-pr` re-traces the flows a PR touches (`flows_touching`).
+claim (`flow_check`; the tracer is refused; `map-save-checks` writes the verdicts into the map's JSON so they travel with it), and `ingest-pr` re-traces the flows a PR touches (`flows_touching`).
 Built with `--repo`, the page re-checks every pointer and marks steps whose code has **moved** or **changed** at
 HEAD since they were traced: a valid pointer only proves the line exists.
 

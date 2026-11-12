@@ -9,14 +9,26 @@
    "text": "At the end of a turn, after ~150k tokens of growth since its last entry, the plugin flushes.",
    "at": "plugins/handoff/journal.ts:117@3d13c64",
    "reads": [],
-   "writes": []
+   "writes": [],
+   "check": {
+    "by": "verifier",
+    "at": "2026-11-12T02:13:32.583417Z",
+    "verdict": "confirmed",
+    "note": "onTurnEnded returns unless tokens - lastJournal >= everyTokens (150000 default, index.ts:70), journal.ts:114-117@3d13c64; journaling agents only."
+   }
   },
   {
    "lane": "worker-or-subagent",
-   "text": "The worker's own model writes a five-section entry (session.generate adds no turn).",
-   "at": "plugins/handoff/journal.ts:120@3d13c64",
+   "text": "The worker's own model writes the entry, with only the sections that have content; a NOTHING_TO_SAVE reply writes nothing. (session.generate is meant to add no turn to the session.)",
+   "at": "plugins/handoff/journal.ts:120-122@3d13c64",
    "reads": [],
-   "writes": []
+   "writes": [],
+   "check": {
+    "by": "verifier",
+    "at": "2026-11-12T02:13:32.583693Z",
+    "verdict": "confirmed",
+    "note": "generate(FLUSH_PROMPT) journal.ts:120@3d13c64; prompt asks only sections with content; NOTHING_TO_SAVE skips write (121-122). \"meant to add no turn\" matches the stated intent (journal.ts:4-5); host behaviour not checkable here."
+   }
   },
   {
    "lane": "store-server-and-cli",
@@ -29,14 +41,26 @@
     "journal.kind",
     "journal.body"
    ],
-   "pin": "journal-entries-are-append-only"
+   "pin": "journal-entries-are-append-only",
+   "check": {
+    "by": "verifier",
+    "at": "2026-11-12T02:13:32.584052Z",
+    "verdict": "confirmed",
+    "note": "index.ts:78 -> `coordlite journal` (__main__.py:107-108) -> INSERT journal views.py:585@3d13c64 (also session_id, agent, tokens); same-session dup within 60 s skipped (580-584). Pin governs the table."
+   }
   },
   {
    "lane": "handoff-plugin",
-   "text": "When 8 entries are pending, or once a day, the plugin asks the master to compile.",
+   "text": "After that flush the plugin asks the master to compile if 8 or more entries are pending, or if it is past 18:00 and nothing was compiled today; at most once every 2 hours, and never if no session flushes.",
    "at": "plugins/handoff/journal.ts:86-96@3d13c64",
    "reads": [],
-   "writes": []
+   "writes": [],
+   "check": {
+    "by": "verifier",
+    "at": "2026-11-12T02:13:32.584532Z",
+    "verdict": "confirmed",
+    "note": "maybeCompile journal.ts:86-96@3d13c64, called after a flush (130): 2 h rate limit, pending>=compileMin(8) or hour>=18 with nothing compiled today; needs known coordinator session."
+   }
   },
   {
    "lane": "master-session",
@@ -46,7 +70,13 @@
     "journal.body",
     "journal.compiled_at"
    ],
-   "writes": []
+   "writes": [],
+   "check": {
+    "by": "verifier",
+    "at": "2026-11-12T02:13:32.585003Z",
+    "verdict": "confirmed",
+    "note": "compileText asks for knowledge-compile in a background subagent (journal.ts:51-53); journal_pending server.py:222-225@3d13c64 reads uncompiled rows incl. body (views.py:596-600)."
+   }
   },
   {
    "lane": "worker-or-subagent",
@@ -56,7 +86,13 @@
    "writes": [
     "node"
    ],
-   "pin": "a-proposal-never-becomes-a-fact"
+   "pin": "a-proposal-never-becomes-a-fact",
+   "check": {
+    "by": "verifier",
+    "at": "2026-11-12T02:13:32.585485Z",
+    "verdict": "confirmed",
+    "note": "node_create views.py:87@3d13c64 is the create path (edits via node_edit views.py:119); HEAD check and lesson-under-concept are knowledge-compile SKILL.md:19-24,46. Convention pin fits."
+   }
   },
   {
    "lane": "worker-or-subagent",
@@ -64,9 +100,16 @@
    "at": "store/coordlite/views.py:264@3d13c64",
    "reads": [],
    "writes": [
-    "receipt"
+    "receipt",
+    "node.touched_at"
    ],
-   "pin": "receipts-are-append-only"
+   "pin": "receipts-are-append-only",
+   "check": {
+    "by": "verifier",
+    "at": "2026-11-12T02:13:32.586049Z",
+    "verdict": "confirmed",
+    "note": "receipt_add views.py:264-275@3d13c64 -> add_receipt inserts receipt and moves node.touched_at (db.py:367); also a change row. Skill step 3 per node."
+   }
   },
   {
    "lane": "worker-or-subagent",
@@ -76,7 +119,13 @@
    "writes": [
     "journal.compiled_at",
     "journal.compiled_into"
-   ]
+   ],
+   "check": {
+    "by": "verifier",
+    "at": "2026-11-12T02:13:32.586728Z",
+    "verdict": "confirmed",
+    "note": "UPDATE journal SET compiled_at, compiled_by, compiled_into WHERE id IN (...) AND compiled_at IS NULL, views.py:609@3d13c64."
+   }
   },
   {
    "lane": "handoff-plugin",
@@ -85,7 +134,13 @@
    "reads": [
     "node"
    ],
-   "writes": []
+   "writes": [],
+   "check": {
+    "by": "verifier",
+    "at": "2026-11-12T02:13:32.587609Z",
+    "verdict": "confirmed",
+    "note": "systemFor snapshots `coordlite index` once per session (refreshed after compaction), journal.ts:147-154@3d13c64, pushed via context hook index.ts:92-95; lesson shows in Recently changed knowledge (views.py:682-684)."
+   }
   }
  ]
 }

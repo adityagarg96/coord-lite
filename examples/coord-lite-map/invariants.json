@@ -65,7 +65,7 @@
  {
   "key": "a-handoff-cannot-loop",
   "title": "A handoff cannot loop",
-  "body": "If the context is still over the threshold on the first step after a handoff, handoffs are disabled for that session.",
+  "body": "If the context is still over the threshold on the first step after a handoff, handoffs are disabled for that session, until the next compaction resets the plugin's state.",
   "enforced_by": "code",
   "breaks_if": "the boot packet alone exceeds the threshold and handoffs fire on every step",
   "evidence": [
@@ -77,7 +77,7 @@
  {
   "key": "journal-entries-are-append-only",
   "title": "Journal entries are append-only",
-  "body": "A journal entry's body, author and time never change and it is never deleted; only its compiled markers are set later.",
+  "body": "A journal entry's time, session, author, kind and body never change and it is never deleted; its compiled markers are set later. (The agent and tokens columns are not protected.)",
   "enforced_by": "db",
   "breaks_if": "something rewrites an entry: the trigger aborts it",
   "evidence": [
@@ -110,6 +110,19 @@
   ],
   "guards": [
    "learner_question"
+  ]
+ },
+ {
+  "key": "learner-reviews-are-append-only",
+  "title": "Learner reviews are append-only",
+  "body": "No answer in the review log is ever updated or deleted.",
+  "enforced_by": "db",
+  "breaks_if": "a code path rewrites or deletes a review: the trigger aborts it",
+  "evidence": [
+   "store/coordlite/db.py:171-174@dcaa879"
+  ],
+  "guards": [
+   "learner_review"
   ]
  }
 ]

@@ -19,7 +19,10 @@ that line and the code around it. You must not be the session that traced the fl
    - **unclear**: the code does not settle it (dynamic SQL, a value from config you cannot see, a database
      object not in the repo). Say what would settle it. Never connect to a database to find out.
 
-3. **Record it**: `flow_check(actor, flow_id, step, verdict, note)`, one call per step.
+3. **Record it**: `flow_check(actor, flow_id, step, verdict, note)`, one call per step. Then save the verdicts into
+   the map directory so they travel with it: `python -m coordlite map-save-checks <map dir>` (it writes a verdict
+   only onto steps whose claim in the file still matches; any change to a step's lane, text, pointer, tables or
+   pin voids its check, on load and on save).
 
 4. **Report**: per flow, steps read and verdicts, every `wrong` with its note, and which invariants turned out to
    be enforced differently than recorded. A `wrong` step goes back to `trace-flow` for that flow; the storyboard

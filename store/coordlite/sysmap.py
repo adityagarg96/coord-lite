@@ -113,14 +113,19 @@ def load(con, data: dict, actor: str = "map-load") -> dict:
                     if pin is None:
                         raise ValueError(f"flow {f['key']} step {i + 1}: unknown pin '{s['pin']}'")
                     pin = pin["id"]
-                steps.append({"lane": lane["id"], "text": s["text"], "at": s["at"], "reads": list(s.get("reads", [])),
-                              "writes": list(s.get("writes", [])), "pin": pin})
+                step = {"lane": lane["id"], "text": s["text"], "at": s["at"], "reads": list(s.get("reads", [])),
+                        "writes": list(s.get("writes", [])), "pin": pin}
+                if isinstance(s.get("check"), dict) and s["check"].get("verdict") in VERDICTS:
+                    step["check"] = s["check"]               # a verdict saved with the map travels with it
+                steps.append(step)
             old = _by_key(con, f"map:flow:{f['key']}")
             if old:                                  # a second reader's check survives a reload of an unchanged step
-                prev = {(x.get("text"), x.get("at")): x.get("check") for x in get_node(con, old["id"])["attrs"].get("steps", [])}
+                claim = lambda x: json.dumps({k: x.get(k) for k in ("lane", "text", "at", "reads", "writes", "pin")},  # noqa: E731
+                                             sort_keys=True)  # the whole claim: change any part and the check is void
+                prev = {claim(x): x.get("check") for x in get_node(con, old["id"])["attrs"].get("steps", [])}
                 for x in steps:
-                    if prev.get((x["text"], x["at"])):
-                        x["check"] = prev[(x["text"], x["at"])]
+                    if "check" not in x and prev.get(claim(x)):
+                        x["check"] = prev[claim(x)]
             dom = _group(con, f["domain"], f"Flows about {f['domain'].lower()}.", actor)
             _upsert(con, f"map:flow:{f['key']}", "concept", f["title"], f"A flow: {f['trigger']}.", dom,
                     {"steps": steps, "trigger": f["trigger"], "traced_by": f.get("traced_by", actor)}, actor)
@@ -142,6 +147,31 @@ def load_path(con, path: str, actor: str = "map-load") -> dict:
         for k, v in load(con, {"flows": [json.loads(f.read_text())]}, actor).items():
             total[k] = total.get(k, 0) + v
     return total
+
+
+def save_checks(con, path: str) -> dict:
+    """Write the store's second-reader verdicts back into a map directory's flow files, onto steps whose claim in the
+    file still matches the store's (a re-traced step keeps no stale verdict). Makes the checks portable."""
+    saved, flows = 0, 0
+    lanes = {r["id"]: r["source_key"][len("map:lane:"):] for r in con.execute("SELECT id, source_key FROM node WHERE source_key LIKE 'map:lane:%'")}
+    pins = {r["id"]: r["source_key"].split(":", 2)[2] for r in con.execute(
+        "SELECT id, source_key FROM node WHERE source_key LIKE 'map:invariant:%' OR source_key LIKE 'map:decision:%'")}
+    for f in sorted((Path(path).expanduser() / "flows").glob("*.json")):
+        data = json.loads(f.read_text())
+        row = _by_key(con, f"map:flow:{data['key']}")
+        if row is None:
+            continue
+        stored = get_node(con, row["id"])["attrs"].get("steps", [])
+        claim = lambda x: (x.get("lane"), x.get("text"), x.get("at"), tuple(x.get("reads", [])), tuple(x.get("writes", [])), x.get("pin"))  # noqa: E731
+        by_claim = {claim({**x, "lane": lanes.get(x["lane"]), "pin": pins.get(x.get("pin"))}): x.get("check") for x in stored}
+        changed = False
+        for st in data["steps"]:
+            c = by_claim.get(claim(st))
+            if c and st.get("check") != c:
+                st["check"] = c; saved += 1; changed = True
+        if changed:
+            f.write_text(json.dumps(data, indent=1, ensure_ascii=False) + "\n"); flows += 1
+    return {"checks_saved": saved, "flow_files": flows}
 
 
 def _at_path(at: str) -> str:

@@ -9,30 +9,54 @@
    "text": "Calls node_create (kind decision) with its actor name.",
    "at": "store/coordlite/server.py:137@3d13c64",
    "reads": [],
-   "writes": []
+   "writes": [],
+   "check": {
+    "by": "verifier",
+    "at": "2026-11-12T02:13:32.579860Z",
+    "verdict": "confirmed",
+    "note": "MCP node_create(actor, kind, ...) -> views.node_create, server.py:136-149@3d13c64."
+   }
   },
   {
    "lane": "store-server-and-cli",
    "text": "The worker's own MCP server validates the write and opens a transaction.",
    "at": "store/coordlite/views.py:87@3d13c64",
    "reads": [],
-   "writes": []
+   "writes": [],
+   "check": {
+    "by": "verifier",
+    "at": "2026-11-12T02:13:32.580217Z",
+    "verdict": "confirmed",
+    "note": "views.node_create validates kind/title/status/state/attrs then with tx(con), views.py:90-99@3d13c64; each MCP server process holds its own connection (server.py:23-27)."
+   }
   },
   {
    "lane": "sqlite-store",
    "text": "BEGIN IMMEDIATE takes the write lock: any other session's write waits (busy_timeout), so writes are serial.",
    "at": "store/coordlite/db.py:241@3d13c64",
    "reads": [],
-   "writes": []
+   "writes": [],
+   "check": {
+    "by": "verifier",
+    "at": "2026-11-12T02:13:32.580545Z",
+    "verdict": "confirmed",
+    "note": "tx() BEGIN IMMEDIATE db.py:241@3d13c64; busy_timeout=10000 (db.py:219), so waits are bounded at 10 s."
+   }
   },
   {
    "lane": "sqlite-store",
-   "text": "The node row is inserted, created_by = the worker.",
+   "text": "The node row is inserted, with attrs.created_by = the worker.",
    "at": "store/coordlite/db.py:315@3d13c64",
    "reads": [],
    "writes": [
     "node"
-   ]
+   ],
+   "check": {
+    "by": "verifier",
+    "at": "2026-11-12T02:13:32.580909Z",
+    "verdict": "confirmed",
+    "note": "insert_node INSERT INTO node db.py:315-325@3d13c64; node_create passes attrs.created_by=actor (views.py:111)."
+   }
   },
   {
    "lane": "sqlite-store",
@@ -44,14 +68,26 @@
     "change.actor",
     "change.node_id",
     "change.what"
-   ]
+   ],
+   "check": {
+    "by": "verifier",
+    "at": "2026-11-12T02:13:32.581309Z",
+    "verdict": "confirmed",
+    "note": "log_change INSERT INTO change(at, actor, node_id, what) db.py:373@3d13c64, inside node_create tx (views.py:112)."
+   }
   },
   {
    "lane": "master-session",
    "text": "Later, the master calls changes_since with the `now` from its last call.",
    "at": "store/coordlite/server.py:121@3d13c64",
    "reads": [],
-   "writes": []
+   "writes": [],
+   "check": {
+    "by": "verifier",
+    "at": "2026-11-12T02:13:32.581750Z",
+    "verdict": "confirmed",
+    "note": "MCP changes_since(since, ...) server.py:120-124@3d13c64; docstring: pass previous `now`."
+   }
   },
   {
    "lane": "store-server-and-cli",
@@ -62,7 +98,13 @@
     "change.actor",
     "change.what"
    ],
-   "writes": []
+   "writes": [],
+   "check": {
+    "by": "verifier",
+    "at": "2026-11-12T02:13:32.582289Z",
+    "verdict": "confirmed",
+    "note": "SELECT * FROM change WHERE at > since, views.py:73-82@3d13c64; same file via DB_PATH, WAL."
+   }
   },
   {
    "lane": "master-session",
@@ -71,7 +113,13 @@
    "reads": [
     "node"
    ],
-   "writes": []
+   "writes": [],
+   "check": {
+    "by": "verifier",
+    "at": "2026-11-12T02:13:32.582861Z",
+    "verdict": "confirmed",
+    "note": "node_get -> node_detail (node, parent, children, edges), server.py:92-95@3d13c64."
+   }
   }
  ]
 }

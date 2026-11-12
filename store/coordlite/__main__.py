@@ -98,6 +98,8 @@ def main(argv=None):
     ml = sub.add_parser("map-load", help="load a system map (lanes, tables, invariants, decisions, flows) from JSON")
     ml.add_argument("path", help="a JSON file, or a directory with lanes.json, tables.json, ..., flows/*.json")
     ml.add_argument("--actor", default="map-load")
+    ms = sub.add_parser("map-save-checks", help="write the store's second-reader verdicts back into a map directory's flow files")
+    ms.add_argument("path")
     a = p.parse_args(argv)
 
     if a.cmd == "serve":
@@ -122,6 +124,9 @@ def main(argv=None):
         with open(a.out, "w") as f:
             f.write(map_html(con, a.include_imported))
         print(a.out)
+    elif a.cmd == "map-save-checks":
+        from .sysmap import save_checks
+        print(json.dumps(save_checks(con, a.path)))
     elif a.cmd == "map-load":
         from .sysmap import load_path
         print(json.dumps(load_path(con, a.path, a.actor)))

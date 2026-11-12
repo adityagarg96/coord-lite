@@ -99,3 +99,21 @@ def test_a_reload_keeps_checks_on_unchanged_steps_and_drops_them_on_retraced_one
     sysmap.load(con, {"flows": [retraced]})
     got = [con.execute(f"SELECT json_extract(attrs,'$.steps[{i}].check.verdict') FROM node WHERE id=?", (fid,)).fetchone()[0] for i in (0, 1)]
     assert got == ["confirmed", None]
+    unpinned = {**flow, "steps": [{k: v for k, v in flow["steps"][0].items() if k != "pin"}, retraced["steps"][1]]}
+    sysmap.load(con, {"flows": [unpinned]})                  # moving a pin changes the claim too
+    assert con.execute("SELECT json_extract(attrs,'$.steps[0].check') FROM node WHERE id=?", (fid,)).fetchone()[0] is None
+
+
+def test_checks_travel_with_the_map(con, tmp_path):
+    import json as j
+    d = tmp_path / "map"; (d / "flows").mkdir(parents=True)
+    for k in ("lanes", "tables", "invariants"):
+        (d / f"{k}.json").write_text(j.dumps(MAP[k]))
+    (d / "flows" / "book.json").write_text(j.dumps(MAP["flows"][0]))
+    sysmap.load_path(con, str(d))
+    fid = con.execute("SELECT id FROM node WHERE source_key='map:flow:book'").fetchone()[0]
+    sysmap.check_step(con, fid, 2, "confirmed", actor="reader")
+    assert sysmap.save_checks(con, str(d)) == {"checks_saved": 1, "flow_files": 1}
+    other = connect(tmp_path / "other.db")                  # another machine's store
+    sysmap.load_path(other, str(d))
+    assert other.execute("SELECT json_extract(attrs,'$.steps[1].check.verdict') FROM node WHERE source_key='map:flow:book'").fetchone()[0] == "confirmed"
